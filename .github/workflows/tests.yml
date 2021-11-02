@@ -1,0 +1,36 @@
+---
+# yamllint disable rule:line-length
+
+name: tests
+on:  # yamllint disable-line rule:truthy
+  push:
+    branches: ["main", "ocm-*", "release-*"]
+    tags: ["*"]
+  pull_request:
+    branches: ["main", "ocm-*", "release-*"]
+  schedule:
+    - cron: "0 4 * * 1"  # 4:00 every Monday
+
+env:
+  GO_VERSION: "1.16"
+  GO111MODULE: "on"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v2
+
+      - name: Install prereqs
+        run: |
+          echo 'APT::Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip ruby
+          sudo gem install asciidoctor mdl
+          sudo pip3 install yamllint
+
+      - name: Run linters
+        run: ./.ci-scripts/pre-commit.sh --require-all
