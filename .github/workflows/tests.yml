@@ -34,3 +34,33 @@ jobs:
 
       - name: Run linters
         run: ./.ci-scripts/pre-commit.sh --require-all
+
+  build:
+    name: Build
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Set up Go 1.16
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.16
+
+      - name: Check out source code
+        uses: actions/checkout@v2
+        with:
+          path: main
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Tidy
+        env:
+          GOPROXY: "https://proxy.golang.org"
+        run: cd main && go mod tidy && git diff --quiet HEAD
+
+      - name: Build
+        env:
+          GOPROXY: "https://proxy.golang.org"
+        run: cd main && go build ./...
+
+      - name: Test
+        env:
+          GOPROXY: "https://proxy.golang.org"
+        run: cd main && go test -v ./...
