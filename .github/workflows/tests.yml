@@ -14,6 +14,7 @@ on:  # yamllint disable-line rule:truthy
 env:
   GO_VERSION: "1.16"
   GO111MODULE: "on"
+  GOPROXY: "https://proxy.golang.org"
 
 jobs:
   lint:
@@ -39,28 +40,21 @@ jobs:
     name: Build
     runs-on: ubuntu-20.04
     steps:
-      - name: Set up Go 1.16
+      - name: Set up Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.16
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Check out source code
         uses: actions/checkout@v2
         with:
           path: main
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Tidy
-        env:
-          GOPROXY: "https://proxy.golang.org"
         run: cd main && go mod tidy && git diff --quiet HEAD
 
       - name: Build
-        env:
-          GOPROXY: "https://proxy.golang.org"
         run: cd main && go build ./...
 
       - name: Test
-        env:
-          GOPROXY: "https://proxy.golang.org"
         run: cd main && go test -v ./...
