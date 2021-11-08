@@ -81,7 +81,7 @@ func New(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 
 	err = s.reconcileSecret(ctx, c)
 	if err != nil {
-		s.logger.Error(err, "unable to create stunnel server secret")
+		s.logger.Error(err, "unable to reconcile stunnel server secret")
 		return nil, err
 	}
 
@@ -256,7 +256,7 @@ func (s *server) getExistingCert(ctx context.Context, c ctrlclient.Client) (*byt
 		return nil, nil, false, nil
 	}
 
-	return bytes.NewBuffer(key), bytes.NewBuffer(crt), false, nil
+	return bytes.NewBuffer(key), bytes.NewBuffer(crt), true, nil
 }
 
 func (s *server) serverContainers() []corev1.Container {
