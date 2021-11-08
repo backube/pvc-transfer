@@ -19,6 +19,7 @@ type Endpoint interface {
 	IngressPort() int32
 	// IsHealthy returns whether or not all Kube resources used by endpoint are healthy
 	IsHealthy(ctx context.Context, c client.Client) (bool, error)
-	// MarkForCleanup
+	// MarkForCleanup adds a label to all the resources created for the endpoint
+	// Callers are expected to not overwrite
 	MarkForCleanup(ctx context.Context, c client.Client, key, value string) error
 }
