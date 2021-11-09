@@ -11,7 +11,6 @@ import (
 	"github.com/backube/pvc-transfer/transport"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -58,7 +57,7 @@ type server struct {
 	namespacedName types.NamespacedName
 }
 
-func New(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
+func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	namespacedName types.NamespacedName,
 	e endpoint.Endpoint,
 	options *transport.Options) (transport.Transport, error) {
@@ -145,23 +144,22 @@ func (s *server) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, v
 }
 
 func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error {
+	stunnelConfTemplate, err := template.New("config").Parse(stunnelServerConfTemplate)
+	if err != nil {
+		s.logger.Error(err, "unable to parse stunnel server config template")
+		return err
+	}
+
 	ports := map[string]string{
 		// acceptPort on which Stunnel service listens on, must connect with endpoint
 		"acceptPort": strconv.Itoa(int(s.ListenPort())),
 		// connectPort in the container on which Transfer is listening on
 		"connectPort": strconv.Itoa(int(s.ConnectPort())),
 	}
-
 	var stunnelConf bytes.Buffer
-	stunnelConfTemplate, err := template.New("config").Parse(stunnelServerConfTemplate)
-	if err != nil {
-		s.logger.Error(err, "unable to parse stunnel config template")
-		return err
-	}
-
 	err = stunnelConfTemplate.Execute(&stunnelConf, ports)
 	if err != nil {
-		s.logger.Error(err, "unable to execute stunnel config template")
+		s.logger.Error(err, "unable to execute stunnel server config template")
 		return err
 	}
 
@@ -189,7 +187,7 @@ func (s *server) prefixedName(name string) string {
 }
 
 func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error {
-	_, _, found, err := s.getExistingCert(ctx, c)
+	_, _, found, err := getExistingCert(ctx, c, s.logger, s.namespacedName, s.secretNameSuffix())
 	if found {
 		return nil
 	}
@@ -208,7 +206,7 @@ func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error
 	stunnelSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: s.NamespacedName().Namespace,
-			Name:      s.prefixedName(stunnelSecret),
+			Name:      getResourceName(s.namespacedName, s.secretNameSuffix()),
 		},
 	}
 
@@ -225,38 +223,8 @@ func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error
 	return err
 }
 
-func (s *server) getExistingCert(ctx context.Context, c ctrlclient.Client) (*bytes.Buffer, *bytes.Buffer, bool, error) {
-	serverSecret := &corev1.Secret{}
-	err := c.Get(ctx, types.NamespacedName{
-		Namespace: s.namespacedName.Namespace,
-		Name:      s.prefixedName(stunnelSecret),
-	}, serverSecret)
-	switch {
-	case k8serrors.IsNotFound(err):
-		return nil, nil, false, nil
-	case err != nil:
-		return nil, nil, false, err
-	}
-
-	key, ok := serverSecret.Data["tls.key"]
-	if !ok {
-		s.logger.Info("stunnel server secret data missing key tls.key", "secret", types.NamespacedName{
-			Namespace: s.namespacedName.Namespace,
-			Name:      s.prefixedName(stunnelSecret),
-		})
-		return nil, nil, false, nil
-	}
-
-	crt, ok := serverSecret.Data["tls.crt"]
-	if !ok {
-		s.logger.Info("stunnel server secret data missing key tls.crt", "secret", types.NamespacedName{
-			Namespace: s.namespacedName.Namespace,
-			Name:      s.prefixedName(stunnelSecret),
-		})
-		return nil, nil, false, nil
-	}
-
-	return bytes.NewBuffer(key), bytes.NewBuffer(crt), true, nil
+func (s *server) secretNameSuffix() string {
+	return "server-" + stunnelSecret
 }
 
 func (s *server) serverContainers() []corev1.Container {
@@ -282,7 +250,7 @@ func (s *server) serverContainers() []corev1.Container {
 					SubPath:   "stunnel.conf",
 				},
 				{
-					Name:      s.prefixedName(stunnelSecret),
+					Name:      getResourceName(s.namespacedName, s.secretNameSuffix()),
 					MountPath: "/etc/stunnel/certs",
 				},
 			},
@@ -303,10 +271,10 @@ func (s *server) serverVolumes() []corev1.Volume {
 			},
 		},
 		{
-			Name: s.prefixedName(stunnelSecret),
+			Name: getResourceName(s.namespacedName, s.secretNameSuffix()),
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName: s.prefixedName(stunnelSecret),
+					SecretName: getResourceName(s.namespacedName, s.secretNameSuffix()),
 					Items: []corev1.KeyToPath{
 						{
 							Key:  "tls.crt",

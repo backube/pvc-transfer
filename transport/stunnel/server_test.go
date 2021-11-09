@@ -72,7 +72,7 @@ func newFakeEndpoint() endpoint.Endpoint {
 	}
 }
 
-func TestNew(t *testing.T) {
+func TestNewServer(t *testing.T) {
 	tests := []struct {
 		name            string
 		namespacedName  types.NamespacedName
@@ -165,9 +165,9 @@ func TestNew(t *testing.T) {
 			fakeClient := fakeClientWithObjects(tt.objects...)
 			ctx := context.WithValue(context.Background(), "test", tt.name)
 			fakeLogger := logrtesting.TestLogger{t}
-			stunnelServer, err := New(ctx, fakeClient, fakeLogger, tt.namespacedName, tt.endpoint, &transport.Options{Labels: tt.labels, Owners: tt.ownerReferences})
+			stunnelServer, err := NewServer(ctx, fakeClient, fakeLogger, tt.namespacedName, tt.endpoint, &transport.Options{Labels: tt.labels, Owners: tt.ownerReferences})
 			if (err != nil) != tt.wantErr {
-				t.Errorf("New() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("NewServer() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			cm := &corev1.ConfigMap{}
@@ -295,108 +295,6 @@ func Test_server_MarkForCleanup(t *testing.T) {
 
 			if !reflect.DeepEqual(tt.labels, secret.Labels) {
 				t.Errorf("labels on secret = %#v, wanted %#v", secret.Labels, tt.labels)
-			}
-		})
-	}
-}
-
-func Test_server_getExistingCert(t *testing.T) {
-	tests := []struct {
-		name           string
-		namespacedName types.NamespacedName
-		labels         map[string]string
-		wantErr        bool
-		wantFound      bool
-		objects        []ctrlclient.Object
-	}{
-		{
-			name:           "test with no secret",
-			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
-			labels:         map[string]string{"test": "me"},
-			wantErr:        false,
-			wantFound:      false,
-			objects:        []ctrlclient.Object{},
-		},
-		{
-			name:           "test with invalid secret, key missing",
-			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
-			labels:         map[string]string{"test": "me"},
-			wantErr:        false,
-			wantFound:      false,
-			objects: []ctrlclient.Object{
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-server-stunnel-credentials",
-						Namespace: "bar",
-						Labels:    map[string]string{"test": "me"},
-					},
-					Data: map[string][]byte{"tls.crt": []byte(`crt`)},
-				},
-			},
-		},
-		{
-			name:           "test with invalid secret, crt missing",
-			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
-			labels:         map[string]string{"test": "me"},
-			wantErr:        false,
-			wantFound:      false,
-			objects: []ctrlclient.Object{
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-server-stunnel-credentials",
-						Namespace: "bar",
-						Labels:    map[string]string{"test": "me"},
-					},
-					Data: map[string][]byte{"tls.key": []byte(`key`)},
-				},
-			},
-		},
-		{
-			name:           "test with valid secret",
-			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
-			labels:         map[string]string{"test": "me"},
-			wantErr:        false,
-			wantFound:      true,
-			objects: []ctrlclient.Object{
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-server-stunnel-credentials",
-						Namespace: "bar",
-						Labels:    map[string]string{"test": "me"},
-					},
-					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &server{
-				logger:         logrtesting.TestLogger{t},
-				namespacedName: tt.namespacedName,
-				options: &transport.Options{
-					Labels: tt.labels,
-					Owners: testOwnerReferences(),
-				},
-			}
-			ctx := context.WithValue(context.Background(), "test", tt.name)
-			key, crt, found, err := s.getExistingCert(ctx, fakeClientWithObjects(tt.objects...))
-			if err != nil {
-				t.Error("found unexpected error", err)
-			}
-			if !tt.wantFound && found {
-				t.Error("found unexpected secret")
-			}
-			if tt.wantFound && !found {
-				t.Error("not found unexpected")
-			}
-
-			if tt.wantFound && found && key == nil {
-				t.Error("secret found but empty key, unexpected")
-			}
-
-			if tt.wantFound && found && crt == nil {
-				t.Error("secret found but empty crt, unexpected")
 			}
 		})
 	}
