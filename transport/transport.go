@@ -53,10 +53,6 @@ type Options struct {
 	ProxyUsername string
 	// ProxyPassword password for connecting to the proxy
 	ProxyPassword string
-	// NoVerifyCA allows you to override verification of TLS certs
-	NoVerifyCA bool
-	// CAVerifyLevel the level at which CA certs will be verify if NoVerifyCA is false
-	CAVerifyLevel string
 }
 
 type Type string
