@@ -19,7 +19,7 @@ const (
 )
 
 const (
-	TransportTypeStunnel = "stunnel"
+	TransportTypeStunnel transport.Type = "stunnel"
 	Container            = "stunnel"
 )
 

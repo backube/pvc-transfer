@@ -144,7 +144,7 @@ func (s *server) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, v
 			Namespace: s.NamespacedName().Namespace,
 		},
 	}
-	return utils.UpdateWithLabel(context.TODO(), c, secret, key, value)
+	return utils.UpdateWithLabel(ctx, c, secret, key, value)
 }
 
 func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error {
@@ -169,8 +169,8 @@ func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error
 
 	stunnelConfigMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: s.NamespacedName().Namespace,
 			Name:      s.prefixedName(stunnelConfig),
+			Namespace: s.NamespacedName().Namespace,
 		},
 	}
 
