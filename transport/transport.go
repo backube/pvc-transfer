@@ -17,6 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// Transport exposes the methods required for transfers to add
+// a tunneling mechanism for the traffic sent over the network.
 type Transport interface {
 	// NamespacedName returns the namespaced name to identify this transport Transport
 	NamespacedName() types.NamespacedName
@@ -44,15 +46,24 @@ type Transport interface {
 	MarkForCleanup(ctx context.Context, c client.Client, key, value string) error
 }
 
+// Options allows users of the transport to configure certain field
 type Options struct {
+	// Labels will be applied to objects reconciled by the transport
 	Labels map[string]string
+	// Owners will be applied to all objects reconciled by the transport
 	Owners []metav1.OwnerReference
-	Image  string
+	// Image allows for specifying the image used for running the transport containers
+	Image string
 
-	ProxyURL      string
+	// ProxyURL is used if the cluster is behind a proxy
+	ProxyURL string
+	// ProxyUsername username for connecting to the proxy
 	ProxyUsername string
+	// ProxyPassword password for connecting to the proxy
 	ProxyPassword string
-	NoVerifyCA    bool
+	// NoVerifyCA allows you to override verification of TLS certs
+	NoVerifyCA bool
+	// CAVerifyLevel the level at which CA certs will be verify if NoVerifyCA is false
 	CAVerifyLevel string
 }
 

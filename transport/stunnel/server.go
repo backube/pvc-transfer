@@ -19,13 +19,17 @@ import (
 )
 
 const (
+	// TCP_NODELAY=1 bypasses Nagle's Delay algorithm
+	// this means that the tcp stack does not way of receiving an acc
+	// before sending the next packet https://en.wikipedia.org/wiki/Nagle%27s_algorithm
+	// At scale setting/unsetting this option might drive different network characteristics
 	stunnelServerConfTemplate = `foreground = yes
 pid =
 socket = l:TCP_NODELAY=1
 socket = r:TCP_NODELAY=1
 debug = 7
-sslVersion = TLSv1.2
-[rsync]
+sslVersion = TLSv1.3
+[transfer]
 accept = {{ $.acceptPort }}
 connect = {{ $.connectPort }}
 key = /etc/stunnel/certs/tls.key
