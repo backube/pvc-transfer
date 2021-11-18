@@ -9,6 +9,7 @@ import (
 	"github.com/backube/pvc-transfer/endpoint"
 	"github.com/backube/pvc-transfer/internal/utils"
 	"github.com/backube/pvc-transfer/transport"
+	"github.com/backube/pvc-transfer/transport/tls/certs"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,7 +21,7 @@ import (
 
 const (
 	// TCP_NODELAY=1 bypasses Nagle's Delay algorithm
-	// this means that the tcp stack does not way of receiving an acc
+	// this means that the tcp stack does not wait for receiving an ack
 	// before sending the next packet https://en.wikipedia.org/wiki/Nagle%27s_algorithm
 	// At scale setting/unsetting this option might drive different network characteristics
 	stunnelServerConfTemplate = `foreground = yes
@@ -34,6 +35,8 @@ accept = {{ $.acceptPort }}
 connect = {{ $.connectPort }}
 key = /etc/stunnel/certs/tls.key
 cert = /etc/stunnel/certs/tls.crt
+CAfile = /etc/stunnel/certs/ca.crt
+verify = 2
 TIMEOUTclose = 0
 `
 	stunnelConnectPort = 8080
@@ -191,7 +194,7 @@ func (s *server) prefixedName(name string) string {
 }
 
 func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error {
-	_, _, found, err := getExistingCert(ctx, c, s.logger, s.namespacedName, s.secretNameSuffix())
+	_, _, found, err := getExistingCert(ctx, c, s.logger, s.namespacedName, serverSecretNameSuffix())
 	if found {
 		return nil
 	}
@@ -201,34 +204,75 @@ func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error
 		return err
 	}
 
-	_, newCrt, newKey, err := transport.GenerateSSLCert()
+	crtBundle, err := certs.New()
 	if err != nil {
 		s.logger.Error(err, "error generating ssl certs for stunnel server")
 		return err
 	}
 
-	stunnelSecret := &corev1.Secret{
+	crtBundleSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: s.NamespacedName().Namespace,
-			Name:      getResourceName(s.namespacedName, s.secretNameSuffix()),
+			Name:      getResourceName(s.namespacedName, caBundleSecretNameSuffix()),
 		},
 	}
+	_, err = controllerutil.CreateOrUpdate(ctx, c, crtBundleSecret, func() error {
+		crtBundleSecret.Labels = s.options.Labels
+		crtBundleSecret.OwnerReferences = s.options.Owners
 
-	_, err = controllerutil.CreateOrUpdate(ctx, c, stunnelSecret, func() error {
-		stunnelSecret.Labels = s.options.Labels
-		stunnelSecret.OwnerReferences = s.options.Owners
+		crtBundleSecret.Data = map[string][]byte{
+			"server.crt": crtBundle.ServerCrt.Bytes(),
+			"server.key": crtBundle.ServerKey.Bytes(),
+			"client.crt": crtBundle.ClientCrt.Bytes(),
+			"client.key": crtBundle.ClientKey.Bytes(),
+			"ca.crt":     crtBundle.CACrt.Bytes(),
+			"ca.key":     crtBundle.CAKey.Bytes(),
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 
-		stunnelSecret.Data = map[string][]byte{
-			"tls.crt": newCrt.Bytes(),
-			"tls.key": newKey.Bytes(),
+	serverSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: s.NamespacedName().Namespace,
+			Name:      getResourceName(s.namespacedName, serverSecretNameSuffix()),
+		},
+	}
+	_, err = controllerutil.CreateOrUpdate(ctx, c, serverSecret, func() error {
+		serverSecret.Labels = s.options.Labels
+		serverSecret.OwnerReferences = s.options.Owners
+
+		serverSecret.Data = map[string][]byte{
+			"tls.crt": crtBundle.ServerCrt.Bytes(),
+			"tls.key": crtBundle.ServerKey.Bytes(),
+			"ca.crt":  crtBundle.CACrt.Bytes(),
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	clientSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: s.NamespacedName().Namespace,
+			Name:      getResourceName(s.namespacedName, clientSecretNameSuffix()),
+		},
+	}
+	_, err = controllerutil.CreateOrUpdate(ctx, c, clientSecret, func() error {
+		clientSecret.Labels = s.options.Labels
+		clientSecret.OwnerReferences = s.options.Owners
+
+		clientSecret.Data = map[string][]byte{
+			"tls.crt": crtBundle.ClientCrt.Bytes(),
+			"tls.key": crtBundle.ClientKey.Bytes(),
+			"ca.crt":  crtBundle.CACrt.Bytes(),
 		}
 		return nil
 	})
 	return err
-}
-
-func (s *server) secretNameSuffix() string {
-	return "server-" + stunnelSecret
 }
 
 func (s *server) serverContainers() []corev1.Container {
@@ -254,7 +298,7 @@ func (s *server) serverContainers() []corev1.Container {
 					SubPath:   "stunnel.conf",
 				},
 				{
-					Name:      getResourceName(s.namespacedName, s.secretNameSuffix()),
+					Name:      getResourceName(s.namespacedName, serverSecretNameSuffix()),
 					MountPath: "/etc/stunnel/certs",
 				},
 			},
@@ -275,10 +319,10 @@ func (s *server) serverVolumes() []corev1.Volume {
 			},
 		},
 		{
-			Name: getResourceName(s.namespacedName, s.secretNameSuffix()),
+			Name: getResourceName(s.namespacedName, serverSecretNameSuffix()),
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName: getResourceName(s.namespacedName, s.secretNameSuffix()),
+					SecretName: getResourceName(s.namespacedName, serverSecretNameSuffix()),
 					Items: []corev1.KeyToPath{
 						{
 							Key:  "tls.crt",

@@ -20,8 +20,20 @@ const (
 
 const (
 	TransportTypeStunnel transport.Type = "stunnel"
-	Container            = "stunnel"
+	Container                           = "stunnel"
 )
+
+func serverSecretNameSuffix() string {
+	return "server-" + stunnelSecret
+}
+
+func clientSecretNameSuffix() string {
+	return "client-" + stunnelSecret
+}
+
+func caBundleSecretNameSuffix() string {
+	return "ca-bundle-" + stunnelSecret
+}
 
 func getImage(options *transport.Options) string {
 	if options.Image == "" {
