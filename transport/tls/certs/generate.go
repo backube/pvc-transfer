@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"time"
 )
@@ -119,6 +120,35 @@ func Generate(subject *pkix.Name, caCrtTemplate x509.Certificate, caKey rsa.Priv
 		return
 	}
 	return
+}
+
+// VerifyCertificate returns true if the crt is signed by the caCrt as the root CA
+// with no intermediate DCAs in the chain
+func VerifyCertificate(caCrt *bytes.Buffer, crt *bytes.Buffer) (bool, error) {
+	roots := x509.NewCertPool()
+	ok := roots.AppendCertsFromPEM(caCrt.Bytes())
+	if !ok {
+		panic("failed to parse root certificate")
+	}
+
+	block, _ := pem.Decode(crt.Bytes())
+	if block == nil {
+		return false, fmt.Errorf("unable to decode certificate")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse certificate: %#v", err)
+	}
+
+	opts := x509.VerifyOptions{
+		Roots:     roots,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}
+
+	if _, err := cert.Verify(opts); err != nil {
+		return false, nil
+	}
+	return true, nil
 }
 
 func createCrtKeyPair(crtTemplate, parent *x509.Certificate, signer *rsa.PrivateKey) (crt *bytes.Buffer, key *rsa.PrivateKey, err error) {

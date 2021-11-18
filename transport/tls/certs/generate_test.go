@@ -1,9 +1,6 @@
 package certs
 
 import (
-	"bytes"
-	"crypto/x509"
-	"encoding/pem"
 	"testing"
 )
 
@@ -54,10 +51,10 @@ func TestNew(t *testing.T) {
 			//	t.Error("client cert is not verified with root CA")
 			//}
 
-			if !verifySingedCA(got.CACrt, got.ClientCrt) {
+			if ok, _ := VerifyCertificate(got.CACrt, got.ClientCrt); !ok {
 				t.Error("client cert is not verified with root CA")
 			}
-			if !verifySingedCA(got.CACrt, got.ServerCrt) {
+			if ok, _ := VerifyCertificate(got.CACrt, got.ServerCrt); !ok {
 				t.Error("server cert is not verified with root CA")
 			}
 
@@ -66,39 +63,12 @@ func TestNew(t *testing.T) {
 				t.Errorf("New() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if verifySingedCA(got.CACrt, got2.ClientCrt) {
+			if ok, _ := VerifyCertificate(got.CACrt, got2.ClientCrt); ok {
 				t.Error("client cert is verified with different root CA")
 			}
-			if verifySingedCA(got.CACrt, got2.ServerCrt) {
+			if ok, _ := VerifyCertificate(got.CACrt, got2.ServerCrt); ok {
 				t.Error("server cert is not verified with different root CA")
 			}
 		})
 	}
-}
-
-func verifySingedCA(caCrt *bytes.Buffer, crt *bytes.Buffer) bool {
-	roots := x509.NewCertPool()
-	ok := roots.AppendCertsFromPEM(caCrt.Bytes())
-	if !ok {
-		panic("failed to parse root certificate")
-	}
-
-	block, _ := pem.Decode(crt.Bytes())
-	if block == nil {
-		panic("failed to parse certificate")
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		panic("failed to parse certificate: " + err.Error())
-	}
-
-	opts := x509.VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-	}
-
-	if _, err := cert.Verify(opts); err != nil {
-		return false
-	}
-	return true
 }

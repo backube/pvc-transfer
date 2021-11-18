@@ -194,16 +194,17 @@ func (s *server) prefixedName(name string) string {
 }
 
 func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error {
-	_, _, found, err := getExistingCert(ctx, c, s.logger, s.namespacedName, serverSecretNameSuffix())
-	if found {
-		return nil
-	}
-
+	secretValid, err := isSecretValid(ctx, c, s.logger, s.namespacedName, serverSecretNameSuffix())
 	if err != nil {
 		s.logger.Error(err, "error getting existing ssl certs from secret")
 		return err
 	}
+	if secretValid {
+		s.logger.V(4).Info("found secret with valid certs")
+		return nil
+	}
 
+	s.logger.Info("generating new certificate bundle")
 	crtBundle, err := certs.New()
 	if err != nil {
 		s.logger.Error(err, "error generating ssl certs for stunnel server")

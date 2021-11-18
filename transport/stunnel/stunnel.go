@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/backube/pvc-transfer/transport"
+	"github.com/backube/pvc-transfer/transport/tls/certs"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,36 +48,45 @@ func getResourceName(obj types.NamespacedName, suffix string) string {
 	return obj.Name + "-" + suffix
 }
 
-func getExistingCert(ctx context.Context, c ctrlclient.Client, logger logr.Logger, secretName types.NamespacedName, suffix string) (*bytes.Buffer, *bytes.Buffer, bool, error) {
+func isSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logger, key types.NamespacedName, suffix string) (bool, error) {
 	secret := &corev1.Secret{}
 	err := c.Get(ctx, types.NamespacedName{
-		Namespace: secretName.Namespace,
-		Name:      getResourceName(secretName, suffix),
+		Namespace: key.Namespace,
+		Name:      getResourceName(key, suffix),
 	}, secret)
 	switch {
 	case k8serrors.IsNotFound(err):
-		return nil, nil, false, nil
+		return false, nil
 	case err != nil:
-		return nil, nil, false, err
+		return false, err
 	}
 
-	key, ok := secret.Data["tls.key"]
+	_, ok := secret.Data["tls.key"]
 	if !ok {
 		logger.Info("secret data missing key tls.key", "secret", types.NamespacedName{
-			Namespace: secretName.Namespace,
-			Name:      getResourceName(secretName, suffix),
+			Namespace: key.Namespace,
+			Name:      getResourceName(key, suffix),
 		})
-		return nil, nil, false, nil
+		return false, nil
 	}
 
 	crt, ok := secret.Data["tls.crt"]
 	if !ok {
 		logger.Info("secret data missing key tls.crt", "secret", types.NamespacedName{
-			Namespace: secretName.Namespace,
-			Name:      getResourceName(secretName, suffix),
+			Namespace: key.Namespace,
+			Name:      getResourceName(key, suffix),
 		})
-		return nil, nil, false, nil
+		return false, nil
 	}
 
-	return bytes.NewBuffer(key), bytes.NewBuffer(crt), true, nil
+	ca, ok := secret.Data["ca.crt"]
+	if !ok {
+		logger.Info("secret data missing key ca.crt", "secret", types.NamespacedName{
+			Namespace: key.Namespace,
+			Name:      getResourceName(key, suffix),
+		})
+		return false, nil
+	}
+
+	return certs.VerifyCertificate(bytes.NewBuffer(ca), bytes.NewBuffer(crt))
 }

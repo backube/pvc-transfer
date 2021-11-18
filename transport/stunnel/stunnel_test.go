@@ -5,12 +5,15 @@ import (
 	"testing"
 
 	"github.com/backube/pvc-transfer/transport"
+	"github.com/backube/pvc-transfer/transport/tls/certs"
 	logrtesting "github.com/go-logr/logr/testing"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var certificateBundle, _ = certs.New()
 
 func Test_getExistingCert(t *testing.T) {
 	tests := []struct {
@@ -42,7 +45,7 @@ func Test_getExistingCert(t *testing.T) {
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
-					Data: map[string][]byte{"tls.crt": []byte(`crt`)},
+					Data: map[string][]byte{"tls.crt": certificateBundle.ServerCrt.Bytes()},
 				},
 			},
 		},
@@ -59,7 +62,24 @@ func Test_getExistingCert(t *testing.T) {
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
-					Data: map[string][]byte{"tls.key": []byte(`key`)},
+					Data: map[string][]byte{"tls.key": certificateBundle.ServerKey.Bytes()},
+				},
+			},
+		},
+		{
+			name:           "test with secret missing ca.crt",
+			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
+			labels:         map[string]string{"test": "me"},
+			wantErr:        true,
+			wantFound:      false,
+			objects: []ctrlclient.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-stunnel-credentials",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string][]byte{"tls.key": certificateBundle.ServerKey.Bytes(), "tls.crt": certificateBundle.ServerKey.Bytes()},
 				},
 			},
 		},
@@ -67,7 +87,7 @@ func Test_getExistingCert(t *testing.T) {
 			name:           "test with valid secret",
 			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
 			labels:         map[string]string{"test": "me"},
-			wantErr:        false,
+			wantErr:        true,
 			wantFound:      true,
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
@@ -76,7 +96,7 @@ func Test_getExistingCert(t *testing.T) {
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
-					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
+					Data: map[string][]byte{"tls.key": certificateBundle.ServerKey.Bytes(), "tls.crt": certificateBundle.ServerCrt.Bytes(), "ca.crt": certificateBundle.CACrt.Bytes()},
 				},
 			},
 		},
@@ -92,7 +112,7 @@ func Test_getExistingCert(t *testing.T) {
 				},
 			}
 			ctx := context.WithValue(context.Background(), "test", tt.name)
-			key, crt, found, err := getExistingCert(ctx, fakeClientWithObjects(tt.objects...), s.logger, s.namespacedName, stunnelSecret)
+			found, err := isSecretValid(ctx, fakeClientWithObjects(tt.objects...), s.logger, s.namespacedName, stunnelSecret)
 			if err != nil {
 				t.Error("found unexpected error", err)
 			}
@@ -101,14 +121,6 @@ func Test_getExistingCert(t *testing.T) {
 			}
 			if tt.wantFound && !found {
 				t.Error("not found unexpected")
-			}
-
-			if tt.wantFound && found && key == nil {
-				t.Error("secret found but empty key, unexpected")
-			}
-
-			if tt.wantFound && found && crt == nil {
-				t.Error("secret found but empty crt, unexpected")
 			}
 		})
 	}

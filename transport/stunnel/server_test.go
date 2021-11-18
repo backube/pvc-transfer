@@ -21,7 +21,7 @@ import (
 
 func fakeClientWithObjects(objs ...ctrlclient.Object) ctrlclient.WithWatch {
 	scheme := runtime.NewScheme()
-	AddToScheme(scheme)
+	_ = AddToScheme(scheme)
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 }
 
@@ -57,11 +57,11 @@ func (f fakeEndpoint) IngressPort() int32 {
 	return 1234
 }
 
-func (f fakeEndpoint) IsHealthy(ctx context.Context, c ctrlclient.Client) (bool, error) {
+func (f fakeEndpoint) IsHealthy(_ context.Context, _ ctrlclient.Client) (bool, error) {
 	return true, nil
 }
 
-func (f fakeEndpoint) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, value string) error {
+func (f fakeEndpoint) MarkForCleanup(_ context.Context, _ ctrlclient.Client, _, _ string) error {
 	return nil
 }
 
@@ -164,7 +164,7 @@ func TestNewServer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeClient := fakeClientWithObjects(tt.objects...)
 			ctx := context.WithValue(context.Background(), "test", tt.name)
-			fakeLogger := logrtesting.TestLogger{t}
+			fakeLogger := logrtesting.TestLogger{T: t}
 			stunnelServer, err := NewServer(ctx, fakeClient, fakeLogger, tt.namespacedName, tt.endpoint, &transport.Options{Labels: tt.labels, Owners: tt.ownerReferences})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewServer() error = %v, wantErr %v", err, tt.wantErr)
@@ -179,11 +179,11 @@ func TestNewServer(t *testing.T) {
 				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
 			}
 
-			configdata, ok := cm.Data["stunnel.conf"]
+			configData, ok := cm.Data["stunnel.conf"]
 			if !ok {
 				t.Error("unable to find stunnel config data in configmap")
 			}
-			if !strings.Contains(configdata, "foreground = yes") {
+			if !strings.Contains(configData, "foreground = yes") {
 				t.Error("configmap data does not contain the right data")
 			}
 
@@ -204,6 +204,11 @@ func TestNewServer(t *testing.T) {
 			_, ok = secret.Data["tls.crt"]
 			if !ok {
 				t.Error("unable to find tls.crt in stunnel secret")
+			}
+
+			_, ok = secret.Data["ca.crt"]
+			if !ok {
+				t.Error("unable to find ca.crt in stunnel secret")
 			}
 
 			if len(stunnelServer.Volumes()) == 0 {
@@ -257,7 +262,7 @@ func Test_server_MarkForCleanup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &server{
-				logger: logrtesting.TestLogger{t},
+				logger: logrtesting.TestLogger{T: t},
 				options: &transport.Options{
 					Labels: tt.labels,
 					Owners: testOwnerReferences(),
