@@ -141,13 +141,35 @@ func (s *server) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, v
 		return err
 	}
 
-	secret := &corev1.Secret{
+	clientSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      s.prefixedName(stunnelSecret),
+			Name:      getResourceName(s.namespacedName, clientSecretNameSuffix()),
 			Namespace: s.NamespacedName().Namespace,
 		},
 	}
-	return utils.UpdateWithLabel(ctx, c, secret, key, value)
+	err = utils.UpdateWithLabel(ctx, c, clientSecret, key, value)
+	if err != nil {
+		return err
+	}
+
+	serverSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getResourceName(s.namespacedName, serverSecretNameSuffix()),
+			Namespace: s.NamespacedName().Namespace,
+		},
+	}
+	err = utils.UpdateWithLabel(ctx, c, serverSecret, key, value)
+	if err != nil {
+		return err
+	}
+
+	crtBundleSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getResourceName(s.namespacedName, caBundleSecretNameSuffix()),
+			Namespace: s.NamespacedName().Namespace,
+		},
+	}
+	return utils.UpdateWithLabel(ctx, c, crtBundleSecret, key, value)
 }
 
 func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error {
@@ -210,70 +232,7 @@ func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error
 		s.logger.Error(err, "error generating ssl certs for stunnel server")
 		return err
 	}
-
-	crtBundleSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: s.NamespacedName().Namespace,
-			Name:      getResourceName(s.namespacedName, caBundleSecretNameSuffix()),
-		},
-	}
-	_, err = controllerutil.CreateOrUpdate(ctx, c, crtBundleSecret, func() error {
-		crtBundleSecret.Labels = s.options.Labels
-		crtBundleSecret.OwnerReferences = s.options.Owners
-
-		crtBundleSecret.Data = map[string][]byte{
-			"server.crt": crtBundle.ServerCrt.Bytes(),
-			"server.key": crtBundle.ServerKey.Bytes(),
-			"client.crt": crtBundle.ClientCrt.Bytes(),
-			"client.key": crtBundle.ClientKey.Bytes(),
-			"ca.crt":     crtBundle.CACrt.Bytes(),
-			"ca.key":     crtBundle.CAKey.Bytes(),
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	serverSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: s.NamespacedName().Namespace,
-			Name:      getResourceName(s.namespacedName, serverSecretNameSuffix()),
-		},
-	}
-	_, err = controllerutil.CreateOrUpdate(ctx, c, serverSecret, func() error {
-		serverSecret.Labels = s.options.Labels
-		serverSecret.OwnerReferences = s.options.Owners
-
-		serverSecret.Data = map[string][]byte{
-			"tls.crt": crtBundle.ServerCrt.Bytes(),
-			"tls.key": crtBundle.ServerKey.Bytes(),
-			"ca.crt":  crtBundle.CACrt.Bytes(),
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	clientSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: s.NamespacedName().Namespace,
-			Name:      getResourceName(s.namespacedName, clientSecretNameSuffix()),
-		},
-	}
-	_, err = controllerutil.CreateOrUpdate(ctx, c, clientSecret, func() error {
-		clientSecret.Labels = s.options.Labels
-		clientSecret.OwnerReferences = s.options.Owners
-
-		clientSecret.Data = map[string][]byte{
-			"tls.crt": crtBundle.ClientCrt.Bytes(),
-			"tls.key": crtBundle.ClientKey.Bytes(),
-			"ca.crt":  crtBundle.CACrt.Bytes(),
-		}
-		return nil
-	})
-	return err
+	return reconcileCertificateSecrets(ctx, c, s.namespacedName, s.options, crtBundle)
 }
 
 func (s *server) serverContainers() []corev1.Container {

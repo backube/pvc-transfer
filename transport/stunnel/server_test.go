@@ -248,6 +248,22 @@ func Test_server_MarkForCleanup(t *testing.T) {
 					},
 					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
 				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-client-stunnel-credentials",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
+				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-ca-bundle-stunnel-credentials",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
+				},
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "foo-server-stunnel-config",
@@ -289,17 +305,40 @@ func Test_server_MarkForCleanup(t *testing.T) {
 				t.Errorf("labels on configmap = %#v, wanted %#v", cm.Labels, tt.labels)
 			}
 
-			secret := &corev1.Secret{}
+			secretSecret := &corev1.Secret{}
 			err = fakeClient.Get(context.Background(), types.NamespacedName{
 				Namespace: "bar",
 				Name:      "foo-server-" + stunnelSecret,
-			}, secret)
+			}, secretSecret)
 			if err != nil {
 				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
 			}
+			if !reflect.DeepEqual(tt.labels, secretSecret.Labels) {
+				t.Errorf("labels on secretSecret = %#v, wanted %#v", secretSecret.Labels, tt.labels)
+			}
 
-			if !reflect.DeepEqual(tt.labels, secret.Labels) {
-				t.Errorf("labels on secret = %#v, wanted %#v", secret.Labels, tt.labels)
+			clientSecret := &corev1.Secret{}
+			err = fakeClient.Get(context.Background(), types.NamespacedName{
+				Namespace: "bar",
+				Name:      "foo-client-" + stunnelSecret,
+			}, clientSecret)
+			if err != nil {
+				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
+			}
+			if !reflect.DeepEqual(tt.labels, clientSecret.Labels) {
+				t.Errorf("labels on secretSecret = %#v, wanted %#v", secretSecret.Labels, tt.labels)
+			}
+
+			caBundleSecret := &corev1.Secret{}
+			err = fakeClient.Get(context.Background(), types.NamespacedName{
+				Namespace: "bar",
+				Name:      "foo-ca-bundle-" + stunnelSecret,
+			}, caBundleSecret)
+			if err != nil {
+				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
+			}
+			if !reflect.DeepEqual(tt.labels, clientSecret.Labels) {
+				t.Errorf("labels on secretSecret = %#v, wanted %#v", secretSecret.Labels, tt.labels)
 			}
 		})
 	}
