@@ -28,7 +28,7 @@ type loadBalancer struct {
 }
 
 // AddToScheme should be used as soon as scheme is created to add
-// route objects for encoding/decoding
+// core  objects for encoding/decoding
 func AddToScheme(scheme *runtime.Scheme) error {
 	return corev1.AddToScheme(scheme)
 }
