@@ -25,7 +25,7 @@ const (
  client = yes
  syslog = no
  output = /dev/stdout
- [rsync]
+ [transfer]
  debug = 7
  accept = {{ .listenPort }}
  cert = /etc/stunnel/certs/tls.crt
@@ -50,7 +50,7 @@ const (
 
 type client struct {
 	logger         logr.Logger
-	ingressPort    int32
+	connectPort    int32
 	listenPort     int32
 	containers     []corev1.Container
 	volumes        []corev1.Volume
@@ -68,7 +68,7 @@ func (sc *client) NamespacedName() types.NamespacedName {
 }
 
 func (sc *client) ConnectPort() int32 {
-	return sc.ingressPort
+	return sc.connectPort
 }
 
 func (sc *client) ListenPort() int32 {
@@ -102,17 +102,23 @@ func (sc *client) Hostname() string {
 	return "localhost"
 }
 
+// NewClient creates the stunnel client object, deploys the resource on the cluster
+// and then generates the necessary containers and volumes for transport to consume.
+//
+// Before passing the client c make sure to call AddToScheme() if core types are not already registered
+// In order to generate the right RBAC, add the following lines to the Reconcile function annotations.
+// +kubebuilder:rbac:groups=core,resources=configmaps,secrets,verbs=get;list;watch;create;update;patch;delete
 func NewClient(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	namespacedName types.NamespacedName,
 	hostname string,
-	ingressPort int32,
+	connectPort int32,
 	options *transport.Options) (transport.Transport, error) {
 	clientLogger := logger.WithValues("stunnelClient", namespacedName)
 	tc := &client{
 		logger:         clientLogger,
 		namespacedName: namespacedName,
 		options:        options,
-		ingressPort:    ingressPort,
+		connectPort:    connectPort,
 		serverHostname: hostname,
 		listenPort:     clientListenPort,
 	}
