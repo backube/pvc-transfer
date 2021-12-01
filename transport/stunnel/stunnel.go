@@ -3,16 +3,18 @@ package stunnel
 import (
 	"bytes"
 	"context"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"fmt"
 
+	"github.com/backube/pvc-transfer/internal/utils"
 	"github.com/backube/pvc-transfer/transport"
 	"github.com/backube/pvc-transfer/transport/tls/certs"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const (
@@ -26,18 +28,6 @@ const (
 	Container                           = "stunnel"
 )
 
-func serverSecretNameSuffix() string {
-	return "server-" + stunnelSecret
-}
-
-func clientSecretNameSuffix() string {
-	return "client-" + stunnelSecret
-}
-
-func caBundleSecretNameSuffix() string {
-	return "ca-bundle-" + stunnelSecret
-}
-
 func getImage(options *transport.Options) string {
 	if options.Image == "" {
 		return defaultStunnelImage
@@ -46,15 +36,15 @@ func getImage(options *transport.Options) string {
 	}
 }
 
-func getResourceName(obj types.NamespacedName, suffix string) string {
-	return obj.Name + "-" + suffix
+func getResourceName(obj types.NamespacedName, component, suffix string) string {
+	return fmt.Sprintf("%s-%s-%s", obj.Name, component, suffix)
 }
 
-func isSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logger, key types.NamespacedName, suffix string) (bool, error) {
+func isSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logger, key types.NamespacedName, component string) (bool, error) {
 	secret := &corev1.Secret{}
 	err := c.Get(ctx, types.NamespacedName{
 		Namespace: key.Namespace,
-		Name:      getResourceName(key, suffix),
+		Name:      getResourceName(key, component, stunnelSecret),
 	}, secret)
 	switch {
 	case k8serrors.IsNotFound(err):
@@ -67,7 +57,7 @@ func isSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	if !ok {
 		logger.Info("secret data missing key tls.key", "secret", types.NamespacedName{
 			Namespace: key.Namespace,
-			Name:      getResourceName(key, suffix),
+			Name:      getResourceName(key, component, stunnelSecret),
 		})
 		return false, nil
 	}
@@ -76,7 +66,7 @@ func isSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	if !ok {
 		logger.Info("secret data missing key tls.crt", "secret", types.NamespacedName{
 			Namespace: key.Namespace,
-			Name:      getResourceName(key, suffix),
+			Name:      getResourceName(key, component, stunnelSecret),
 		})
 		return false, nil
 	}
@@ -85,7 +75,7 @@ func isSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	if !ok {
 		logger.Info("secret data missing key ca.crt", "secret", types.NamespacedName{
 			Namespace: key.Namespace,
-			Name:      getResourceName(key, suffix),
+			Name:      getResourceName(key, component, stunnelSecret),
 		})
 		return false, nil
 	}
@@ -100,7 +90,7 @@ func reconcileCertificateSecrets(ctx context.Context,
 	crtBundle *certs.CertificateBundle) error {
 	crtBundleSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(key, caBundleSecretNameSuffix()),
+			Name:      getResourceName(key, "ca-bundle", stunnelSecret),
 			Namespace: key.Namespace,
 		},
 	}
@@ -124,7 +114,7 @@ func reconcileCertificateSecrets(ctx context.Context,
 
 	serverSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(key, serverSecretNameSuffix()),
+			Name:      getResourceName(key, "server", stunnelSecret),
 			Namespace: key.Namespace,
 		},
 	}
@@ -145,7 +135,7 @@ func reconcileCertificateSecrets(ctx context.Context,
 
 	clientSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(key, clientSecretNameSuffix()),
+			Name:      getResourceName(key, "client", stunnelSecret),
 			Namespace: key.Namespace,
 		},
 	}
@@ -161,4 +151,59 @@ func reconcileCertificateSecrets(ctx context.Context,
 		return nil
 	})
 	return err
+}
+
+func markForCleanup(ctx context.Context, c ctrlclient.Client, objKey types.NamespacedName, key, value, component string) error {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getResourceName(objKey, component, stunnelConfig),
+			Namespace: objKey.Namespace,
+		},
+	}
+	err := utils.UpdateWithLabel(ctx, c, cm, key, value)
+	if err != nil {
+		return err
+	}
+
+	clientSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getResourceName(objKey, "client", stunnelSecret),
+			Namespace: objKey.Namespace,
+		},
+	}
+	err = utils.UpdateWithLabel(ctx, c, clientSecret, key, value)
+	switch {
+	case k8serrors.IsNotFound(err):
+		break
+	case err != nil:
+		return err
+	}
+
+	serverSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getResourceName(objKey, "server", stunnelSecret),
+			Namespace: objKey.Namespace,
+		},
+	}
+	err = utils.UpdateWithLabel(ctx, c, serverSecret, key, value)
+	switch {
+	case k8serrors.IsNotFound(err):
+		break
+	case err != nil:
+		return err
+	}
+	crtBundleSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getResourceName(objKey, "ca-bundle", stunnelSecret),
+			Namespace: objKey.Namespace,
+		},
+	}
+	err = utils.UpdateWithLabel(ctx, c, crtBundleSecret, key, value)
+	switch {
+	case k8serrors.IsNotFound(err):
+		break
+	case err != nil:
+		return err
+	}
+	return nil
 }

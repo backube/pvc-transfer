@@ -7,7 +7,6 @@ import (
 	"text/template"
 
 	"github.com/backube/pvc-transfer/endpoint"
-	"github.com/backube/pvc-transfer/internal/utils"
 	"github.com/backube/pvc-transfer/transport"
 	"github.com/backube/pvc-transfer/transport/tls/certs"
 	"github.com/go-logr/logr"
@@ -64,6 +63,12 @@ type server struct {
 	namespacedName types.NamespacedName
 }
 
+// NewServer creates the stunnel server object, deploys the resource on the cluster
+// and then generates the necessary containers and volumes for transport to consume.
+//
+// Before passing the client c make sure to call AddToScheme() if core types are not already registered
+// In order to generate the right RBAC, add the following lines to the Reconcile function annotations.
+// +kubebuilder:rbac:groups=core,resources=configmaps,secrets,verbs=get;list;watch;create;update;patch;delete
 func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	namespacedName types.NamespacedName,
 	e endpoint.Endpoint,
@@ -130,46 +135,7 @@ func (s *server) Hostname() string {
 }
 
 func (s *server) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, value string) error {
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      s.prefixedName(stunnelConfig),
-			Namespace: s.NamespacedName().Namespace,
-		},
-	}
-	err := utils.UpdateWithLabel(ctx, c, cm, key, value)
-	if err != nil {
-		return err
-	}
-
-	clientSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(s.namespacedName, clientSecretNameSuffix()),
-			Namespace: s.NamespacedName().Namespace,
-		},
-	}
-	err = utils.UpdateWithLabel(ctx, c, clientSecret, key, value)
-	if err != nil {
-		return err
-	}
-
-	serverSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(s.namespacedName, serverSecretNameSuffix()),
-			Namespace: s.NamespacedName().Namespace,
-		},
-	}
-	err = utils.UpdateWithLabel(ctx, c, serverSecret, key, value)
-	if err != nil {
-		return err
-	}
-
-	crtBundleSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(s.namespacedName, caBundleSecretNameSuffix()),
-			Namespace: s.NamespacedName().Namespace,
-		},
-	}
-	return utils.UpdateWithLabel(ctx, c, crtBundleSecret, key, value)
+	return markForCleanup(ctx, c, s.namespacedName, key, value, "server")
 }
 
 func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error {
@@ -194,7 +160,7 @@ func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error
 
 	stunnelConfigMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      s.prefixedName(stunnelConfig),
+			Name:      getResourceName(s.namespacedName, "server", stunnelConfig),
 			Namespace: s.NamespacedName().Namespace,
 		},
 	}
@@ -216,7 +182,7 @@ func (s *server) prefixedName(name string) string {
 }
 
 func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error {
-	secretValid, err := isSecretValid(ctx, c, s.logger, s.namespacedName, serverSecretNameSuffix())
+	secretValid, err := isSecretValid(ctx, c, s.logger, s.namespacedName, "server")
 	if err != nil {
 		s.logger.Error(err, "error getting existing ssl certs from secret")
 		return err
@@ -258,7 +224,7 @@ func (s *server) serverContainers() []corev1.Container {
 					SubPath:   "stunnel.conf",
 				},
 				{
-					Name:      getResourceName(s.namespacedName, serverSecretNameSuffix()),
+					Name:      getResourceName(s.namespacedName, "server", stunnelSecret),
 					MountPath: "/etc/stunnel/certs",
 				},
 			},
@@ -279,10 +245,10 @@ func (s *server) serverVolumes() []corev1.Volume {
 			},
 		},
 		{
-			Name: getResourceName(s.namespacedName, serverSecretNameSuffix()),
+			Name: getResourceName(s.namespacedName, "server", stunnelSecret),
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName: getResourceName(s.namespacedName, serverSecretNameSuffix()),
+					SecretName: getResourceName(s.namespacedName, "server", stunnelSecret),
 					Items: []corev1.KeyToPath{
 						{
 							Key:  "tls.crt",
@@ -291,6 +257,10 @@ func (s *server) serverVolumes() []corev1.Volume {
 						{
 							Key:  "tls.key",
 							Path: "tls.key",
+						},
+						{
+							Key:  "ca.crt",
+							Path: "ca.crt",
 						},
 					},
 				},

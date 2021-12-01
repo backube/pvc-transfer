@@ -2,6 +2,8 @@ package stunnel
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/backube/pvc-transfer/transport"
@@ -92,7 +94,7 @@ func Test_getExistingCert(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-stunnel-credentials",
+						Name:      "foo-foo-stunnel-credentials",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -104,7 +106,7 @@ func Test_getExistingCert(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &server{
-				logger:         logrtesting.TestLogger{t},
+				logger:         logrtesting.TestLogger{T: t},
 				namespacedName: tt.namespacedName,
 				options: &transport.Options{
 					Labels: tt.labels,
@@ -112,7 +114,7 @@ func Test_getExistingCert(t *testing.T) {
 				},
 			}
 			ctx := context.WithValue(context.Background(), "test", tt.name)
-			found, err := isSecretValid(ctx, fakeClientWithObjects(tt.objects...), s.logger, s.namespacedName, stunnelSecret)
+			found, err := isSecretValid(ctx, fakeClientWithObjects(tt.objects...), s.logger, s.namespacedName, "foo")
 			if err != nil {
 				t.Error("found unexpected error", err)
 			}
@@ -121,6 +123,157 @@ func Test_getExistingCert(t *testing.T) {
 			}
 			if tt.wantFound && !found {
 				t.Error("not found unexpected")
+			}
+		})
+	}
+}
+
+func Test_mrkForCleanup(t *testing.T) {
+	tests := []struct {
+		name           string
+		namespacedName types.NamespacedName
+		labels         map[string]string
+		wantErr        bool
+		key            string
+		value          string
+		objects        []ctrlclient.Object
+		verifyObjects  []ctrlclient.Object
+	}{
+		{
+			name:           "test with configmap and secret objects",
+			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
+			labels:         map[string]string{"test": "me"},
+			wantErr:        false,
+			key:            "cleanup-key",
+			value:          "cleanup-value",
+			objects: []ctrlclient.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-server-stunnel-credentials",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
+				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-client-stunnel-credentials",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
+				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-ca-bundle-stunnel-credentials",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
+				},
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-foo-stunnel-config",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string]string{"stunnel.conf": "foreground = yes"},
+				},
+			},
+			verifyObjects: []ctrlclient.Object{
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-foo-" + stunnelConfig,
+					},
+				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-client-" + stunnelSecret,
+					},
+				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-server-" + stunnelSecret,
+					},
+				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-ca-bundle-" + stunnelSecret,
+					},
+				},
+			},
+		},
+		{
+			name:           "test with configmap but no server secret",
+			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
+			labels:         map[string]string{"test": "me"},
+			wantErr:        false,
+			key:            "cleanup-key",
+			value:          "cleanup-value",
+			objects: []ctrlclient.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-client-stunnel-credentials",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
+				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-ca-bundle-stunnel-credentials",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
+				},
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-foo-stunnel-config",
+						Namespace: "bar",
+						Labels:    map[string]string{"test": "me"},
+					},
+					Data: map[string]string{"stunnel.conf": "foreground = yes"},
+				},
+			},
+			verifyObjects: []ctrlclient.Object{
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-foo-" + stunnelConfig,
+					},
+				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-client-" + stunnelSecret,
+					},
+				},
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-ca-bundle-" + stunnelSecret,
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.WithValue(context.Background(), "test", tt.name)
+			fakeClient := fakeClientWithObjects(tt.objects...)
+			if err := markForCleanup(ctx, fakeClient, tt.namespacedName, tt.key, tt.value, "foo"); (err != nil) != tt.wantErr {
+				t.Errorf("markForCleanup() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			tt.labels[tt.key] = tt.value
+			for _, obj := range tt.verifyObjects {
+				err := fakeClient.Get(context.Background(), types.NamespacedName{
+					Namespace: tt.namespacedName.Namespace,
+					Name:      obj.GetName()}, obj)
+				if err != nil {
+					panic(fmt.Errorf("%#v should not be getting error from fake client", err))
+				}
+				if !reflect.DeepEqual(tt.labels, obj.GetLabels()) {
+					t.Errorf("labels on obj = %#v, wanted %#v", obj.GetLabels(), tt.labels)
+				}
 			}
 		})
 	}
