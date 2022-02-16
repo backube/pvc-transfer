@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/go-logr/logr"
 	"strconv"
 	"text/template"
 
@@ -99,6 +100,7 @@ type server struct {
 	labels    map[string]string
 	ownerRefs []metav1.OwnerReference
 	options   transfer.PodOptions
+	logger    logr.Logger
 }
 
 func (s *server) Endpoint() endpoint.Endpoint {
@@ -110,11 +112,11 @@ func (s *server) Transport() transport.Transport {
 }
 
 func (s *server) IsHealthy(ctx context.Context, c client.Client) (bool, error) {
-	return transfer.IsPodHealthy(ctx, c, client.ObjectKey{Namespace: s.pvcList.GetNamespaces()[0], Name: fmt.Sprintf("rsync-server-%s", s.nameSuffix)})
+	return transfer.IsPodHealthy(ctx, c, client.ObjectKey{Namespace: s.pvcList.Namespaces()[0], Name: fmt.Sprintf("rsync-server-%s", s.nameSuffix)})
 }
 
 func (s *server) Completed(ctx context.Context, c client.Client) (bool, error) {
-	return transfer.IsPodCompleted(ctx, c, client.ObjectKey{Namespace: s.pvcList.GetNamespaces()[0], Name: fmt.Sprintf("rsync-server-%s", s.nameSuffix)}, "rsync")
+	return transfer.IsPodCompleted(ctx, c, client.ObjectKey{Namespace: s.pvcList.Namespaces()[0], Name: fmt.Sprintf("rsync-server-%s", s.nameSuffix)}, "rsync")
 }
 
 // MarkForCleanup marks the provided "obj" to be deleted at the end of the
@@ -132,7 +134,7 @@ func (s *server) MarkForCleanup(ctx context.Context, c client.Client, key, value
 		return err
 	}
 
-	namespace := s.pvcList.GetNamespaces()[0]
+	namespace := s.pvcList.Namespaces()[0]
 	// update configmap
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -214,7 +216,14 @@ func (s *server) ListenPort() int32 {
 	return s.listenPort
 }
 
-func NewRsyncTransferServer(ctx context.Context, c client.Client,
+// NewServer takes PVCList, transport and endpoint object and all
+// the resources required by the transfer server pod as well as the transfer
+// pod. All the PVCs in the list can be sync'ed via the endpoint object
+
+// In order to generate the right RBAC, add the following lines to the Reconcile function annotations.
+// +kubebuilder:rbac:groups=core,resources=secrets;configmaps;pods;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+func NewServer(ctx context.Context, c client.Client, logger logr.Logger,
 	pvcList transfer.PVCList,
 	t transport.Transport,
 	e endpoint.Endpoint,
@@ -240,10 +249,13 @@ func NewRsyncTransferServer(ctx context.Context, c client.Client,
 	}
 
 	var namespace string
-	namespaces := pvcList.GetNamespaces()
+	namespaces := pvcList.Namespaces()
 	if len(namespaces) > 0 {
-		namespace = pvcList.GetNamespaces()[0]
+		namespace = pvcList.Namespaces()[0]
 	}
+
+	r.nameSuffix = transfer.GetNames(pvcList)[namespace][:10]
+	r.logger = logger.WithValues("rsyncServer", r.nameSuffix)
 
 	for _, ns := range namespaces {
 		if ns != namespace {
@@ -255,7 +267,6 @@ func NewRsyncTransferServer(ctx context.Context, c client.Client,
 		return nil, fmt.Errorf("ether PVC list is empty or namespace is not specified")
 	}
 
-	r.nameSuffix = transfer.GetNames(pvcList)[namespace][:10]
 	reconcilers := []reconcileFunc{
 		r.reconcileConfigMap,
 		r.reconcileSecret,
@@ -268,6 +279,7 @@ func NewRsyncTransferServer(ctx context.Context, c client.Client,
 	for _, reconcile := range reconcilers {
 		err := reconcile(ctx, c, namespace)
 		if err != nil {
+			r.logger.Error(err, "error reconciling rsyncServer")
 			return nil, err
 		}
 	}
@@ -279,6 +291,7 @@ func (s *server) reconcileConfigMap(ctx context.Context, c client.Client, namesp
 	var rsyncConf bytes.Buffer
 	rsyncConfTemplate, err := template.New("config").Parse(rsyncServerConfTemplate)
 	if err != nil {
+		s.logger.Error(err, "unable to parse rsyncServerConfTemplate")
 		return err
 	}
 
@@ -291,6 +304,7 @@ func (s *server) reconcileConfigMap(ctx context.Context, c client.Client, namesp
 
 	err = rsyncConfTemplate.Execute(&rsyncConf, configdata)
 	if err != nil {
+		s.logger.Error(err, "unable to execute rsyncServerConfTemplate")
 		return err
 	}
 
@@ -314,7 +328,9 @@ func (s *server) reconcileConfigMap(ctx context.Context, c client.Client, namesp
 
 func (s *server) reconcileSecret(ctx context.Context, c client.Client, namespace string) error {
 	if s.password == "" {
-		return fmt.Errorf("password is empty")
+		e := fmt.Errorf("password is empty")
+		s.logger.Error(e, "unable to find password for rsyncServer")
+		return e
 	}
 
 	rsyncSecret := &corev1.Secret{

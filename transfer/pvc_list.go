@@ -12,6 +12,8 @@ type pvc struct {
 	p *corev1.PersistentVolumeClaim
 }
 
+var _ PVC = &pvc{}
+
 // Claim returns ref to associated PersistentVolumeClaim
 func (p pvc) Claim() *corev1.PersistentVolumeClaim {
 	return p.p
@@ -30,7 +32,7 @@ func getMD5Hash(s string) string {
 // pvcList defines a managed list of PVCs
 type pvcList []PVC
 
-// NewPVCPairList when given a list of PVCPair, returns a managed list
+// NewPVCList when given a list of pvcs, returns a managed list
 func NewPVCList(pvcs ...*corev1.PersistentVolumeClaim) (PVCList, error) {
 	pvcList := pvcList{}
 	for _, p := range pvcs {
@@ -42,8 +44,8 @@ func NewPVCList(pvcs ...*corev1.PersistentVolumeClaim) (PVCList, error) {
 	return pvcList, nil
 }
 
-// GetNamespaces returns all the namespaces present in the list of pvcs
-func (p pvcList) GetNamespaces() (namespaces []string) {
+// Namespaces returns all the namespaces present in the list of pvcs
+func (p pvcList) Namespaces() (namespaces []string) {
 	nsSet := map[string]bool{}
 	for i := range p {
 		pvc := p[i]

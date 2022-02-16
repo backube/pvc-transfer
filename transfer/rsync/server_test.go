@@ -3,7 +3,7 @@ package rsync
 import (
 	"context"
 	"fmt"
-	rbacv1 "k8s.io/api/rbac/v1"
+	logrtesting "github.com/go-logr/logr/testing"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/backube/pvc-transfer/transport"
 	"github.com/backube/pvc-transfer/transport/stunnel"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -164,6 +165,7 @@ func Test_server_reconcileConfigMap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeClient := fakeClientWithObjects(tt.objects...)
 			s := &server{
+				logger:          logrtesting.TestLogger{t},
 				nameSuffix:      tt.nameSuffix,
 				username:        tt.username,
 				pvcList:         tt.pvcList,
@@ -273,6 +275,7 @@ func Test_server_reconcileSecret(t *testing.T) {
 
 		t.Run(tt.name, func(t *testing.T) {
 			s := &server{
+				logger:     logrtesting.TestLogger{t},
 				username:   tt.username,
 				password:   tt.password,
 				labels:     tt.labels,
@@ -376,6 +379,7 @@ func Test_server_reconcileServiceAccount(t *testing.T) {
 			ctx := context.WithValue(context.Background(), "test", tt.name)
 
 			s := &server{
+				logger:     logrtesting.TestLogger{t},
 				nameSuffix: tt.nameSuffix,
 				labels:     tt.labels,
 				ownerRefs:  tt.ownerRefs,
@@ -462,6 +466,7 @@ func Test_server_reconcileRole(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &server{
+				logger:     logrtesting.TestLogger{t},
 				nameSuffix: tt.nameSuffix,
 				labels:     tt.labels,
 				ownerRefs:  tt.ownerRefs,
@@ -553,6 +558,7 @@ func Test_server_reconcileRoleBinding(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &server{
+				logger:     logrtesting.TestLogger{t},
 				nameSuffix: tt.nameSuffix,
 				labels:     tt.labels,
 				ownerRefs:  tt.ownerRefs,
@@ -673,6 +679,7 @@ func Test_server_reconcilePod(t *testing.T) {
 			fakeClient := fakeClientWithObjects(tt.objects...)
 			ctx := context.WithValue(context.Background(), "test", tt.name)
 			s := &server{
+				logger:          logrtesting.TestLogger{t},
 				username:        tt.username,
 				pvcList:         tt.pvcList,
 				transportServer: tt.transportServer,

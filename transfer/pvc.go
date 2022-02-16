@@ -15,7 +15,7 @@ type PVC interface {
 }
 
 type PVCList interface {
-	GetNamespaces() []string
+	Namespaces() []string
 	InNamespace(ns string) PVCList
 	PVCs() []PVC
 }
