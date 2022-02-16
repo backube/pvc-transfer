@@ -3,6 +3,7 @@ package transfer
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -31,6 +32,18 @@ func getMD5Hash(s string) string {
 
 // pvcList defines a managed list of PVCs
 type pvcList []PVC
+
+func (p pvcList) Len() int {
+	return len(p)
+}
+
+func (p pvcList) Less(i, j int) bool {
+	return p[i].Claim().Namespace+"-"+p[i].Claim().Name < p[j].Claim().Namespace+"-"+p[j].Claim().Name
+}
+
+func (p pvcList) Swap(i, j int) {
+	p[i], p[j] = p[j], p[i]
+}
 
 // NewPVCList when given a list of pvcs, returns a managed list
 func NewPVCList(pvcs ...*corev1.PersistentVolumeClaim) (PVCList, error) {
@@ -76,6 +89,7 @@ func (p pvcList) PVCs() []PVC {
 			pvcs = append(pvcs, p[i])
 		}
 	}
+	sort.Sort(pvcList(pvcs))
 	return pvcs
 }
 

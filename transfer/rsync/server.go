@@ -254,7 +254,7 @@ func NewServer(ctx context.Context, c client.Client, logger logr.Logger,
 		namespace = pvcList.Namespaces()[0]
 	}
 
-	r.nameSuffix = transfer.GetNames(pvcList)[namespace][:10]
+	r.nameSuffix = transfer.NamespaceHashForNames(pvcList)[namespace][:10]
 	r.logger = logger.WithValues("rsyncServer", r.nameSuffix)
 
 	for _, ns := range namespaces {

@@ -20,9 +20,9 @@ type PVCList interface {
 	PVCs() []PVC
 }
 
-// GetNames takes PVCList and returns a map with a unique md5 hash for each namespace
+// NamespaceHashForNames takes PVCList and returns a map with a unique md5 hash for each namespace
 // based on the members in PVCList for that namespace.
-func GetNames(pvcs PVCList) map[string]string {
+func NamespaceHashForNames(pvcs PVCList) map[string]string {
 	p := map[string]string{}
 	for _, pvc := range pvcs.PVCs() {
 		p[pvc.Claim().Namespace] += pvc.Claim().Name
