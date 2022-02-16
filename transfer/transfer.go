@@ -2,9 +2,9 @@ package transfer
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
-	"time"
+	"math/big"
 
 	"github.com/backube/pvc-transfer/endpoint"
 	"github.com/backube/pvc-transfer/transport"
@@ -166,12 +166,16 @@ func AreFilteredPodsHealthy(ctx context.Context, c client.Client, namespace stri
 }
 
 // GeneratePassword can be used to generate random character string for 24 byte
-func GeneratePassword() string {
+func GeneratePassword() (string, error) {
 	var letters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-	rand.Seed(time.Now().UnixNano())
 	password := make([]byte, 24)
-	for i := range password {
-		password[i] = letters[rand.Intn(len(letters))]
+	for i := 0; i < 24; i++ {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			return "", err
+		}
+		password = append(password, letters[num.Int64()])
 	}
-	return string(password)
+
+	return string(password), nil
 }

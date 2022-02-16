@@ -92,5 +92,8 @@ func (s singletonPVC) LabelSafeName() string {
 }
 
 func NewSingletonPVC(pvc *corev1.PersistentVolumeClaim) PVCList {
-	return pvcList([]PVC{singletonPVC{pvc}})
+	if pvc != nil {
+		return pvcList([]PVC{singletonPVC{pvc}})
+	}
+	return pvcList{}
 }
