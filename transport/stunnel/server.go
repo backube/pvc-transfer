@@ -68,7 +68,7 @@ type server struct {
 //
 // Before passing the client c make sure to call AddToScheme() if core types are not already registered
 // In order to generate the right RBAC, add the following lines to the Reconcile function annotations.
-// +kubebuilder:rbac:groups=core,resources=configmaps,secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	namespacedName types.NamespacedName,
 	e endpoint.Endpoint,

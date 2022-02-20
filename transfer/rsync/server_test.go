@@ -3,7 +3,6 @@ package rsync
 import (
 	"context"
 	"fmt"
-	logrtesting "github.com/go-logr/logr/testing"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,13 +10,13 @@ import (
 	"github.com/backube/pvc-transfer/transfer"
 	"github.com/backube/pvc-transfer/transport"
 	"github.com/backube/pvc-transfer/transport/stunnel"
+	logrtesting "github.com/go-logr/logr/testing"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -71,7 +70,7 @@ func (f *fakeTransportServer) Hostname() string {
 	panic("implement me")
 }
 
-func (f *fakeTransportServer) MarkForCleanup(ctx context.Context, c client.Client, key, value string) error {
+func (f *fakeTransportServer) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, value string) error {
 	panic("implement me")
 }
 
@@ -92,7 +91,7 @@ func Test_server_reconcileConfigMap(t *testing.T) {
 		namespace       string
 		wantErr         bool
 		nameSuffix      string
-		objects         []client.Object
+		objects         []ctrlclient.Object
 	}{
 		{
 			name:     "test with no configmap",
@@ -108,7 +107,7 @@ func Test_server_reconcileConfigMap(t *testing.T) {
 			ownerRefs:       testOwnerReferences(),
 			wantErr:         false,
 			nameSuffix:      "foo",
-			objects:         []client.Object{},
+			objects:         []ctrlclient.Object{},
 		},
 		{
 			name:     "test with invalid configmap",
@@ -124,7 +123,7 @@ func Test_server_reconcileConfigMap(t *testing.T) {
 			ownerRefs:       testOwnerReferences(),
 			wantErr:         false,
 			nameSuffix:      "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            rsyncConfig + "-foo",
@@ -149,7 +148,7 @@ func Test_server_reconcileConfigMap(t *testing.T) {
 			ownerRefs:       testOwnerReferences(),
 			wantErr:         false,
 			nameSuffix:      "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            rsyncConfig + "-foo",
@@ -215,7 +214,7 @@ func Test_server_reconcileSecret(t *testing.T) {
 		namespace  string
 		wantErr    bool
 		nameSuffix string
-		objects    []client.Object
+		objects    []ctrlclient.Object
 	}{
 		{
 			name:       "test if password is empty",
@@ -225,7 +224,7 @@ func Test_server_reconcileSecret(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    true,
 			nameSuffix: "foo",
-			objects:    []client.Object{},
+			objects:    []ctrlclient.Object{},
 		},
 		{
 			name:       "secret with invalid data",
@@ -235,7 +234,7 @@ func Test_server_reconcileSecret(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            "backube-rsync-foo",
@@ -254,7 +253,7 @@ func Test_server_reconcileSecret(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            "backube-rsync-foo",
@@ -325,7 +324,7 @@ func Test_server_reconcileServiceAccount(t *testing.T) {
 		namespace  string
 		wantErr    bool
 		nameSuffix string
-		objects    []client.Object
+		objects    []ctrlclient.Object
 	}{
 		{
 			name:       "test with missing service account",
@@ -334,7 +333,7 @@ func Test_server_reconcileServiceAccount(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects:    []client.Object{},
+			objects:    []ctrlclient.Object{},
 		},
 		{
 			name:       "test with invalid service account",
@@ -343,7 +342,7 @@ func Test_server_reconcileServiceAccount(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&corev1.ServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            fmt.Sprintf("%s-%s", rsyncServiceAccount, "foo"),
@@ -361,7 +360,7 @@ func Test_server_reconcileServiceAccount(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&corev1.ServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            fmt.Sprintf("%s-%s", rsyncServiceAccount, "foo"),
@@ -415,7 +414,7 @@ func Test_server_reconcileRole(t *testing.T) {
 		namespace  string
 		wantErr    bool
 		nameSuffix string
-		objects    []client.Object
+		objects    []ctrlclient.Object
 	}{
 		{
 			name:       "test with missing role",
@@ -424,7 +423,7 @@ func Test_server_reconcileRole(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects:    []client.Object{},
+			objects:    []ctrlclient.Object{},
 		},
 		{
 			name:       "test with invalid role",
@@ -433,7 +432,7 @@ func Test_server_reconcileRole(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&rbacv1.Role{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            fmt.Sprintf("%s-%s", rsyncRole, "foo"),
@@ -451,7 +450,7 @@ func Test_server_reconcileRole(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&rbacv1.Role{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            fmt.Sprintf("%s-%s", rsyncRole, "foo"),
@@ -507,7 +506,7 @@ func Test_server_reconcileRoleBinding(t *testing.T) {
 		namespace  string
 		wantErr    bool
 		nameSuffix string
-		objects    []client.Object
+		objects    []ctrlclient.Object
 	}{
 		{
 			name:       "test with missing rolebinding",
@@ -516,7 +515,7 @@ func Test_server_reconcileRoleBinding(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects:    []client.Object{},
+			objects:    []ctrlclient.Object{},
 		},
 		{
 			name:       "test with invalid rolebinding",
@@ -525,7 +524,7 @@ func Test_server_reconcileRoleBinding(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&rbacv1.RoleBinding{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            fmt.Sprintf("%s-%s", rsyncRoleBinding, "foo"),
@@ -543,7 +542,7 @@ func Test_server_reconcileRoleBinding(t *testing.T) {
 			ownerRefs:  testOwnerReferences(),
 			wantErr:    false,
 			nameSuffix: "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&rbacv1.RoleBinding{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            fmt.Sprintf("%s-%s", rsyncRoleBinding, "foo"),
@@ -602,7 +601,7 @@ func Test_server_reconcilePod(t *testing.T) {
 		wantErr         bool
 		nameSuffix      string
 		listenPort      int32
-		objects         []client.Object
+		objects         []ctrlclient.Object
 	}{
 		{
 			name:     "test with no pod",
@@ -619,7 +618,7 @@ func Test_server_reconcilePod(t *testing.T) {
 			ownerRefs:       testOwnerReferences(),
 			wantErr:         false,
 			nameSuffix:      "foo",
-			objects:         []client.Object{},
+			objects:         []ctrlclient.Object{},
 		},
 		{
 			name:     "test with invalid pod",
@@ -636,7 +635,7 @@ func Test_server_reconcilePod(t *testing.T) {
 			ownerRefs:       testOwnerReferences(),
 			wantErr:         false,
 			nameSuffix:      "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            "rsync-server-foo",
@@ -662,7 +661,7 @@ func Test_server_reconcilePod(t *testing.T) {
 			ownerRefs:       testOwnerReferences(),
 			wantErr:         false,
 			nameSuffix:      "foo",
-			objects: []client.Object{
+			objects: []ctrlclient.Object{
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            "rsync-server-foo",
