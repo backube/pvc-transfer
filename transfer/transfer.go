@@ -78,8 +78,8 @@ type Running struct {
 }
 
 type Completed struct {
-	Successful bool
-	Failure    bool
+	Successful *bool
+	Failure    *bool
 	FinishedAt *metav1.Time
 }
 

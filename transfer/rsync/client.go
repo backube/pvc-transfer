@@ -15,6 +15,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	errorsutil "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/utils/pointer"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -64,8 +65,8 @@ func (tc *client) Status(ctx context.Context, c ctrlclient.Client) (*transfer.St
 					if containerStatus.State.Terminated.ExitCode == 0 {
 						return &transfer.Status{
 							Completed: &transfer.Completed{
-								Successful: true,
-								Failure:    false,
+								Successful: pointer.BoolPtr(true),
+								Failure:    pointer.BoolPtr(false),
 								FinishedAt: &containerStatus.State.Terminated.FinishedAt,
 							},
 						}, nil
@@ -73,8 +74,8 @@ func (tc *client) Status(ctx context.Context, c ctrlclient.Client) (*transfer.St
 						return &transfer.Status{
 							Running: nil,
 							Completed: &transfer.Completed{
-								Successful: false,
-								Failure:    true,
+								Successful: pointer.Bool(false),
+								Failure:    pointer.Bool(true),
 								FinishedAt: &containerStatus.State.Terminated.FinishedAt,
 							},
 						}, nil
