@@ -37,6 +37,7 @@ type client struct {
 	// TODO: this is a temporary field that needs to give away once multiple
 	//  namespace pvcList is supported
 	namespace string
+	scc       string
 }
 
 func (tc *client) Transport() transport.Transport {
@@ -204,6 +205,12 @@ func NewClient(ctx context.Context, c ctrlclient.Client,
 		return nil, fmt.Errorf("ether PVC list is empty or namespace is not specified")
 	}
 	tc.namespace = namespace
+
+	if podOptions.SCCName == nil || (podOptions.SCCName != nil && *podOptions.SCCName == "") {
+		//TODO: raise a warning event
+	} else {
+		tc.scc = *podOptions.SCCName
+	}
 
 	tc.nameSuffix = transfer.NamespaceHashForNames(pvcList)[namespace][:10]
 	reconcilers := []reconcileFunc{
@@ -418,7 +425,7 @@ func (tc *client) reconcileRole(ctx context.Context, c ctrlclient.Client, namesp
 				Resources: []string{"securitycontextconstraints"},
 				// Must match the name of the SCC that is deployed w/ the operator
 				// config/openshift/mover_scc.yaml
-				ResourceNames: []string{DefaultSCCName},
+				ResourceNames: []string{tc.scc},
 				Verbs:         []string{"use"},
 			},
 		}

@@ -50,9 +50,6 @@ func APIsToWatch() ([]ctrlclient.Object, error) {
 	}, nil
 }
 
-// DefaultSCCName is the default name of the security context constraint
-const DefaultSCCName = "pvc-transfer-mover"
-
 const (
 	rsyncServerConfTemplate = `syslog facility = local7
 read only = no
@@ -107,6 +104,7 @@ type server struct {
 	// TODO: this is a temporary field that needs to give away once multiple
 	//  namespace pvcList is supported
 	namespace string
+	scc       string
 }
 
 func (s *server) Endpoint() endpoint.Endpoint {
@@ -303,6 +301,12 @@ func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	namespaces := pvcList.Namespaces()
 	if len(namespaces) > 0 {
 		namespace = pvcList.Namespaces()[0]
+	}
+
+	if podOptions.SCCName == nil || (podOptions.SCCName != nil && *podOptions.SCCName == "") {
+		//TODO: raise a warning event
+	} else {
+		r.scc = *podOptions.SCCName
 	}
 
 	r.nameSuffix = transfer.NamespaceHashForNames(pvcList)[namespace][:10]
@@ -596,7 +600,7 @@ func (s *server) reconcileRole(ctx context.Context, c ctrlclient.Client, namespa
 				Resources: []string{"securitycontextconstraints"},
 				// Must match the name of the SCC that is deployed w/ the operator
 				// config/openshift/mover_scc.yaml
-				ResourceNames: []string{DefaultSCCName},
+				ResourceNames: []string{s.scc},
 				Verbs:         []string{"use"},
 			},
 		}
