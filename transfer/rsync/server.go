@@ -4,20 +4,22 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/go-logr/logr"
 	"strconv"
 	"text/template"
 
 	"github.com/backube/pvc-transfer/endpoint"
+	"github.com/backube/pvc-transfer/endpoint/route"
 	"github.com/backube/pvc-transfer/internal/utils"
 	"github.com/backube/pvc-transfer/transfer"
 	"github.com/backube/pvc-transfer/transport"
 	"github.com/backube/pvc-transfer/transport/stunnel"
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/types"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -37,8 +39,8 @@ func AddToScheme(scheme *runtime.Scheme) error {
 
 // APIsToWatch give a list of APIs to watch if using this package
 // to deploy the endpoint
-func APIsToWatch() ([]client.Object, error) {
-	return []client.Object{
+func APIsToWatch() ([]ctrlclient.Object, error) {
+	return []ctrlclient.Object{
 		&corev1.Secret{},
 		&corev1.ConfigMap{},
 		&corev1.Pod{},
@@ -47,9 +49,6 @@ func APIsToWatch() ([]client.Object, error) {
 		&rbacv1.Role{},
 	}, nil
 }
-
-// DefaultSCCName is the default name of the security context constraint
-const DefaultSCCName = "pvc-transfer-mover"
 
 const (
 	rsyncServerConfTemplate = `syslog facility = local7
@@ -85,7 +84,7 @@ type rsyncConfigData struct {
 	AllowLocalhostOnly bool
 }
 
-type reconcileFunc func(ctx context.Context, c client.Client, namespace string) error
+type reconcileFunc func(ctx context.Context, c ctrlclient.Client, namespace string) error
 
 type server struct {
 	username        string
@@ -101,6 +100,11 @@ type server struct {
 	ownerRefs []metav1.OwnerReference
 	options   transfer.PodOptions
 	logger    logr.Logger
+
+	// TODO: this is a temporary field that needs to give away once multiple
+	//  namespace pvcList is supported
+	namespace string
+	scc       string
 }
 
 func (s *server) Endpoint() endpoint.Endpoint {
@@ -111,17 +115,17 @@ func (s *server) Transport() transport.Transport {
 	return s.transportServer
 }
 
-func (s *server) IsHealthy(ctx context.Context, c client.Client) (bool, error) {
-	return transfer.IsPodHealthy(ctx, c, client.ObjectKey{Namespace: s.pvcList.Namespaces()[0], Name: fmt.Sprintf("rsync-server-%s", s.nameSuffix)})
+func (s *server) IsHealthy(ctx context.Context, c ctrlclient.Client) (bool, error) {
+	return transfer.IsPodHealthy(ctx, c, ctrlclient.ObjectKey{Namespace: s.pvcList.Namespaces()[0], Name: fmt.Sprintf("rsync-server-%s", s.nameSuffix)})
 }
 
-func (s *server) Completed(ctx context.Context, c client.Client) (bool, error) {
-	return transfer.IsPodCompleted(ctx, c, client.ObjectKey{Namespace: s.pvcList.Namespaces()[0], Name: fmt.Sprintf("rsync-server-%s", s.nameSuffix)}, "rsync")
+func (s *server) Completed(ctx context.Context, c ctrlclient.Client) (bool, error) {
+	return transfer.IsPodCompleted(ctx, c, ctrlclient.ObjectKey{Namespace: s.pvcList.Namespaces()[0], Name: fmt.Sprintf("rsync-server-%s", s.nameSuffix)}, "rsync")
 }
 
 // MarkForCleanup marks the provided "obj" to be deleted at the end of the
 // synchronization iteration.
-func (s *server) MarkForCleanup(ctx context.Context, c client.Client, key, value string) error {
+func (s *server) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, value string) error {
 	// mark endpoint for deletion
 	err := s.Endpoint().MarkForCleanup(ctx, c, key, value)
 	if err != nil {
@@ -134,12 +138,11 @@ func (s *server) MarkForCleanup(ctx context.Context, c client.Client, key, value
 		return err
 	}
 
-	namespace := s.pvcList.Namespaces()[0]
 	// update configmap
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", rsyncConfig, s.nameSuffix),
-			Namespace: namespace,
+			Namespace: s.namespace,
 		},
 	}
 	err = utils.UpdateWithLabel(ctx, c, cm, key, value)
@@ -150,7 +153,7 @@ func (s *server) MarkForCleanup(ctx context.Context, c client.Client, key, value
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", rsyncSecretPrefix, s.nameSuffix),
-			Namespace: namespace,
+			Namespace: s.namespace,
 		},
 	}
 	err = utils.UpdateWithLabel(ctx, c, secret, key, value)
@@ -162,7 +165,7 @@ func (s *server) MarkForCleanup(ctx context.Context, c client.Client, key, value
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("rsync-server-%s", s.nameSuffix),
-			Namespace: namespace,
+			Namespace: s.namespace,
 		},
 	}
 	err = utils.UpdateWithLabel(ctx, c, pod, key, value)
@@ -174,7 +177,7 @@ func (s *server) MarkForCleanup(ctx context.Context, c client.Client, key, value
 	sa := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", rsyncServiceAccount, s.nameSuffix),
-			Namespace: namespace,
+			Namespace: s.namespace,
 		},
 	}
 	err = utils.UpdateWithLabel(ctx, c, sa, key, value)
@@ -186,7 +189,7 @@ func (s *server) MarkForCleanup(ctx context.Context, c client.Client, key, value
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", rsyncRole, s.nameSuffix),
-			Namespace: namespace,
+			Namespace: s.namespace,
 		},
 	}
 	err = utils.UpdateWithLabel(ctx, c, role, key, value)
@@ -198,7 +201,7 @@ func (s *server) MarkForCleanup(ctx context.Context, c client.Client, key, value
 	roleBinding := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", rsyncRoleBinding, s.nameSuffix),
-			Namespace: namespace,
+			Namespace: s.namespace,
 		},
 	}
 	return utils.UpdateWithLabel(ctx, c, roleBinding, key, value)
@@ -216,6 +219,52 @@ func (s *server) ListenPort() int32 {
 	return s.listenPort
 }
 
+// NewServerWithStunnelRoute creates the stunnel server resources and a route before attempting
+// to create the rsync server pod and its resources. This requires the callers to call stunnel.APIsToWatch()
+// and route.APIsToWatch(), to get correct list of all the APIs to be watched for the reconcilers
+
+// In order to generate the right RBAC, add the following lines to the Reconcile function annotations.
+// +kubebuilder:rbac:groups=core,resources=services;secrets;configmaps;pods;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
+func NewServerWithStunnelRoute(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
+	pvcList transfer.PVCList,
+	labels map[string]string,
+	ownerRefs []metav1.OwnerReference,
+	password string, podOptions transfer.PodOptions) (transfer.Server, error) {
+
+	var namespace string
+	namespaces := pvcList.Namespaces()
+	if len(namespaces) > 0 {
+		namespace = pvcList.Namespaces()[0]
+	}
+
+	for _, ns := range namespaces {
+		if ns != namespace {
+			return nil, fmt.Errorf("PVC list provided has pvcs in different namespaces which is not supported")
+		}
+	}
+
+	if namespace == "" {
+		return nil, fmt.Errorf("ether PVC list is empty or namespace is not specified")
+	}
+	hm := transfer.NamespaceHashForNames(pvcList)
+	e, err := route.New(ctx, c, logger, types.NamespacedName{
+		Namespace: namespace,
+		Name:      hm[namespace],
+	}, route.EndpointTypePassthrough, labels, ownerRefs)
+	if err != nil {
+		return nil, err
+	}
+
+	t, err := stunnel.NewServer(ctx, c, logger, types.NamespacedName{Namespace: namespace, Name: hm[namespace]}, e, &transport.Options{Labels: labels, Owners: ownerRefs})
+	if err != nil {
+		return nil, err
+	}
+
+	return NewServer(ctx, c, logger, pvcList, t, e, labels, ownerRefs, password, podOptions)
+}
+
 // NewServer takes PVCList, transport and endpoint object and all
 // the resources required by the transfer server pod as well as the transfer
 // pod. All the PVCs in the list can be sync'ed via the endpoint object
@@ -223,7 +272,7 @@ func (s *server) ListenPort() int32 {
 // In order to generate the right RBAC, add the following lines to the Reconcile function annotations.
 // +kubebuilder:rbac:groups=core,resources=secrets;configmaps;pods;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
-func NewServer(ctx context.Context, c client.Client, logger logr.Logger,
+func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	pvcList transfer.PVCList,
 	t transport.Transport,
 	e endpoint.Endpoint,
@@ -254,6 +303,12 @@ func NewServer(ctx context.Context, c client.Client, logger logr.Logger,
 		namespace = pvcList.Namespaces()[0]
 	}
 
+	if podOptions.SCCName == nil || (podOptions.SCCName != nil && *podOptions.SCCName == "") {
+		//TODO: raise a warning event
+	} else {
+		r.scc = *podOptions.SCCName
+	}
+
 	r.nameSuffix = transfer.NamespaceHashForNames(pvcList)[namespace][:10]
 	r.logger = logger.WithValues("rsyncServer", r.nameSuffix)
 
@@ -262,10 +317,10 @@ func NewServer(ctx context.Context, c client.Client, logger logr.Logger,
 			return nil, fmt.Errorf("PVC list provided has pvcs in different namespaces which is not supported")
 		}
 	}
-
 	if namespace == "" {
 		return nil, fmt.Errorf("ether PVC list is empty or namespace is not specified")
 	}
+	r.namespace = namespace
 
 	reconcilers := []reconcileFunc{
 		r.reconcileConfigMap,
@@ -277,7 +332,7 @@ func NewServer(ctx context.Context, c client.Client, logger logr.Logger,
 	}
 
 	for _, reconcile := range reconcilers {
-		err := reconcile(ctx, c, namespace)
+		err := reconcile(ctx, c, r.namespace)
 		if err != nil {
 			r.logger.Error(err, "error reconciling rsyncServer")
 			return nil, err
@@ -287,7 +342,7 @@ func NewServer(ctx context.Context, c client.Client, logger logr.Logger,
 	return r, nil
 }
 
-func (s *server) reconcileConfigMap(ctx context.Context, c client.Client, namespace string) error {
+func (s *server) reconcileConfigMap(ctx context.Context, c ctrlclient.Client, namespace string) error {
 	var rsyncConf bytes.Buffer
 	rsyncConfTemplate, err := template.New("config").Parse(rsyncServerConfTemplate)
 	if err != nil {
@@ -326,7 +381,7 @@ func (s *server) reconcileConfigMap(ctx context.Context, c client.Client, namesp
 	return err
 }
 
-func (s *server) reconcileSecret(ctx context.Context, c client.Client, namespace string) error {
+func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client, namespace string) error {
 	if s.password == "" {
 		e := fmt.Errorf("password is empty")
 		s.logger.Error(e, "unable to find password for rsyncServer")
@@ -352,7 +407,7 @@ func (s *server) reconcileSecret(ctx context.Context, c client.Client, namespace
 	return err
 }
 
-func (s *server) reconcilePod(ctx context.Context, c client.Client, namespace string) error {
+func (s *server) reconcilePod(ctx context.Context, c ctrlclient.Client, namespace string) error {
 	volumeMounts := []corev1.VolumeMount{}
 	configVolumeMounts := s.getConfigVolumeMounts()
 	pvcVolumeMounts := s.getPVCVolumeMounts(namespace)
@@ -514,7 +569,7 @@ func (s *server) getConfigVolumeMounts() []corev1.VolumeMount {
 	}
 }
 
-func (s *server) reconcileServiceAccount(ctx context.Context, c client.Client, namespace string) error {
+func (s *server) reconcileServiceAccount(ctx context.Context, c ctrlclient.Client, namespace string) error {
 	sa := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", rsyncServiceAccount, s.nameSuffix),
@@ -529,7 +584,7 @@ func (s *server) reconcileServiceAccount(ctx context.Context, c client.Client, n
 	return err
 }
 
-func (s *server) reconcileRole(ctx context.Context, c client.Client, namespace string) error {
+func (s *server) reconcileRole(ctx context.Context, c ctrlclient.Client, namespace string) error {
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", rsyncRole, s.nameSuffix),
@@ -545,7 +600,7 @@ func (s *server) reconcileRole(ctx context.Context, c client.Client, namespace s
 				Resources: []string{"securitycontextconstraints"},
 				// Must match the name of the SCC that is deployed w/ the operator
 				// config/openshift/mover_scc.yaml
-				ResourceNames: []string{DefaultSCCName},
+				ResourceNames: []string{s.scc},
 				Verbs:         []string{"use"},
 			},
 		}
@@ -554,7 +609,7 @@ func (s *server) reconcileRole(ctx context.Context, c client.Client, namespace s
 	return err
 }
 
-func (s *server) reconcileRoleBinding(ctx context.Context, c client.Client, namespace string) error {
+func (s *server) reconcileRoleBinding(ctx context.Context, c ctrlclient.Client, namespace string) error {
 	roleBinding := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", rsyncRoleBinding, s.nameSuffix),

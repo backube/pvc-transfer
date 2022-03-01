@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/backube/pvc-transfer/transfer"
@@ -14,309 +13,53 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/pointer"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func testOwnerReferences() []metav1.OwnerReference {
-	return []metav1.OwnerReference{{
-		APIVersion:         "api.foo",
-		Kind:               "Test",
-		Name:               "bar",
-		UID:                "123",
-		Controller:         pointer.Bool(true),
-		BlockOwnerDeletion: pointer.Bool(true),
-	}}
-}
-
-type fakeTransportServer struct {
+type fakeTransportClient struct {
 	transportType transport.Type
 }
 
-func (f *fakeTransportServer) NamespacedName() types.NamespacedName {
+func (f *fakeTransportClient) NamespacedName() types.NamespacedName {
 	panic("implement me")
 }
 
-func (f *fakeTransportServer) ListenPort() int32 {
+func (f *fakeTransportClient) ListenPort() int32 {
+	return 8080
+}
+
+func (f *fakeTransportClient) ConnectPort() int32 {
 	panic("implement me")
 }
 
-func (f *fakeTransportServer) ConnectPort() int32 {
-	panic("implement me")
+func (f *fakeTransportClient) Containers() []corev1.Container {
+	return []corev1.Container{{Name: stunnel.Container}}
 }
 
-func (f *fakeTransportServer) Containers() []corev1.Container {
-	return []corev1.Container{{Name: "fakeTransportServerContainer"}}
-}
-
-func (f *fakeTransportServer) Volumes() []corev1.Volume {
+func (f *fakeTransportClient) Volumes() []corev1.Volume {
 	return []corev1.Volume{{
 		Name: "fakeVolume",
 	}}
 }
 
-func (f *fakeTransportServer) Type() transport.Type {
+func (f *fakeTransportClient) Type() transport.Type {
 	return f.transportType
 }
 
-func (f *fakeTransportServer) Credentials() types.NamespacedName {
+func (f *fakeTransportClient) Credentials() types.NamespacedName {
 	panic("implement me")
 }
 
-func (f *fakeTransportServer) Hostname() string {
+func (f *fakeTransportClient) Hostname() string {
+	return "foo.bar.dev"
+}
+
+func (f *fakeTransportClient) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, value string) error {
 	panic("implement me")
 }
 
-func (f *fakeTransportServer) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, value string) error {
-	panic("implement me")
-}
-
-func fakeClientWithObjects(objs ...ctrlclient.Object) ctrlclient.WithWatch {
-	scheme := runtime.NewScheme()
-	_ = AddToScheme(scheme)
-	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
-}
-
-func Test_server_reconcileConfigMap(t *testing.T) {
-	tests := []struct {
-		name            string
-		username        string
-		pvcList         transfer.PVCList
-		transportServer transport.Transport
-		labels          map[string]string
-		ownerRefs       []metav1.OwnerReference
-		namespace       string
-		wantErr         bool
-		nameSuffix      string
-		objects         []ctrlclient.Object
-	}{
-		{
-			name:     "test with no configmap",
-			username: "root",
-			pvcList: transfer.NewSingletonPVC(&corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pvc",
-					Namespace: "foo",
-				},
-			}),
-			transportServer: &fakeTransportServer{stunnel.TransportTypeStunnel},
-			labels:          map[string]string{"test": "me"},
-			ownerRefs:       testOwnerReferences(),
-			wantErr:         false,
-			nameSuffix:      "foo",
-			objects:         []ctrlclient.Object{},
-		},
-		{
-			name:     "test with invalid configmap",
-			username: "root",
-			pvcList: transfer.NewSingletonPVC(&corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pvc",
-					Namespace: "foo",
-				},
-			}),
-			transportServer: &fakeTransportServer{stunnel.TransportTypeStunnel},
-			labels:          map[string]string{"test": "me"},
-			ownerRefs:       testOwnerReferences(),
-			wantErr:         false,
-			nameSuffix:      "foo",
-			objects: []ctrlclient.Object{
-				&corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            rsyncConfig + "-foo",
-						Namespace:       "foo",
-						Labels:          map[string]string{"foo": "bar"},
-						OwnerReferences: []metav1.OwnerReference{},
-					},
-				},
-			},
-		},
-		{
-			name:     "test with valid configmap",
-			username: "root",
-			pvcList: transfer.NewSingletonPVC(&corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pvc",
-					Namespace: "foo",
-				},
-			}),
-			transportServer: &fakeTransportServer{stunnel.TransportTypeStunnel},
-			labels:          map[string]string{"test": "me"},
-			ownerRefs:       testOwnerReferences(),
-			wantErr:         false,
-			nameSuffix:      "foo",
-			objects: []ctrlclient.Object{
-				&corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            rsyncConfig + "-foo",
-						Namespace:       "foo",
-						Labels:          map[string]string{"test": "me"},
-						OwnerReferences: testOwnerReferences(),
-					},
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fakeClient := fakeClientWithObjects(tt.objects...)
-			s := &server{
-				logger:          logrtesting.TestLogger{t},
-				nameSuffix:      tt.nameSuffix,
-				username:        tt.username,
-				pvcList:         tt.pvcList,
-				labels:          tt.labels,
-				ownerRefs:       tt.ownerRefs,
-				transportServer: tt.transportServer,
-			}
-			ctx := context.WithValue(context.Background(), "test", tt.name)
-			if err := s.reconcileConfigMap(ctx, fakeClient, tt.namespace); (err != nil) != tt.wantErr {
-				t.Errorf("reconcileConfigMap() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			cm := &corev1.ConfigMap{}
-			err := fakeClient.Get(context.Background(), types.NamespacedName{
-				Namespace: tt.namespace,
-				Name:      rsyncConfig + "-" + tt.nameSuffix,
-			}, cm)
-			if err != nil {
-				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
-			}
-
-			configData, ok := cm.Data["rsyncd.conf"]
-			if !ok {
-				t.Error("unable to find rsyncd config data in configmap")
-			}
-			if !strings.Contains(configData, "syslog facility = local7") {
-				t.Error("configmap data does not contain the right data")
-			}
-
-			if !reflect.DeepEqual(cm.Labels, tt.labels) {
-				t.Error("configmap does not have the right labels")
-			}
-
-			if !reflect.DeepEqual(cm.OwnerReferences, tt.ownerRefs) {
-				t.Error("configmap does not have the right owner references")
-			}
-		})
-	}
-}
-
-func Test_server_reconcileSecret(t *testing.T) {
-	tests := []struct {
-		name       string
-		username   string
-		password   string
-		labels     map[string]string
-		ownerRefs  []metav1.OwnerReference
-		namespace  string
-		wantErr    bool
-		nameSuffix string
-		objects    []ctrlclient.Object
-	}{
-		{
-			name:       "test if password is empty",
-			username:   "root",
-			password:   "",
-			labels:     map[string]string{"test": "me"},
-			ownerRefs:  testOwnerReferences(),
-			wantErr:    true,
-			nameSuffix: "foo",
-			objects:    []ctrlclient.Object{},
-		},
-		{
-			name:       "secret with invalid data",
-			username:   "root",
-			password:   "root",
-			labels:     map[string]string{"test": "me"},
-			ownerRefs:  testOwnerReferences(),
-			wantErr:    false,
-			nameSuffix: "foo",
-			objects: []ctrlclient.Object{
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            "backube-rsync-foo",
-						Namespace:       "foo",
-						Labels:          map[string]string{"foo": "bar"},
-						OwnerReferences: []metav1.OwnerReference{},
-					},
-				},
-			},
-		},
-		{
-			name:       "secret with valid data",
-			username:   "root",
-			password:   "root",
-			labels:     map[string]string{"test": "me"},
-			ownerRefs:  testOwnerReferences(),
-			wantErr:    false,
-			nameSuffix: "foo",
-			objects: []ctrlclient.Object{
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            "backube-rsync-foo",
-						Namespace:       "foo",
-						Labels:          map[string]string{"test": "me"},
-						OwnerReferences: testOwnerReferences(),
-					},
-					Data: map[string][]byte{
-						"credentials": []byte("root:root"),
-					},
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		fakeClient := fakeClientWithObjects(tt.objects...)
-		ctx := context.WithValue(context.Background(), "test", tt.name)
-
-		t.Run(tt.name, func(t *testing.T) {
-			s := &server{
-				logger:     logrtesting.TestLogger{t},
-				username:   tt.username,
-				password:   tt.password,
-				labels:     tt.labels,
-				ownerRefs:  tt.ownerRefs,
-				nameSuffix: tt.nameSuffix,
-			}
-			err := s.reconcileSecret(ctx, fakeClient, tt.namespace)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("reconcilePassword() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				return
-			}
-			secret := &corev1.Secret{}
-			err = fakeClient.Get(context.Background(), types.NamespacedName{
-				Namespace: tt.namespace,
-				Name:      rsyncSecretPrefix + "-" + tt.nameSuffix,
-			}, secret)
-			if err != nil {
-				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
-			}
-
-			secretData, ok := secret.Data["credentials"]
-			if !ok {
-				t.Error("unable to find credentials in secret")
-			}
-			if !strings.Contains(string(secretData), tt.username+":"+tt.password) {
-				t.Error("secrets does not contain the right data")
-			}
-
-			if !reflect.DeepEqual(secret.Labels, tt.labels) {
-				t.Error("secret does not have the right labels")
-			}
-
-			if !reflect.DeepEqual(secret.OwnerReferences, tt.ownerRefs) {
-				t.Error("secret does not have the right owner references")
-			}
-		})
-	}
-}
-
-func Test_server_reconcileServiceAccount(t *testing.T) {
+func TestClient_reconcileServiceAccount(t *testing.T) {
 	tests := []struct {
 		name       string
 		labels     map[string]string
@@ -377,7 +120,7 @@ func Test_server_reconcileServiceAccount(t *testing.T) {
 			fakeClient := fakeClientWithObjects(tt.objects...)
 			ctx := context.WithValue(context.Background(), "test", tt.name)
 
-			s := &server{
+			s := &client{
 				logger:     logrtesting.TestLogger{t},
 				nameSuffix: tt.nameSuffix,
 				labels:     tt.labels,
@@ -406,7 +149,7 @@ func Test_server_reconcileServiceAccount(t *testing.T) {
 	}
 }
 
-func Test_server_reconcileRole(t *testing.T) {
+func TestClient_reconcileRole(t *testing.T) {
 	tests := []struct {
 		name       string
 		labels     map[string]string
@@ -464,7 +207,7 @@ func Test_server_reconcileRole(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &server{
+			s := &client{
 				logger:     logrtesting.TestLogger{t},
 				nameSuffix: tt.nameSuffix,
 				labels:     tt.labels,
@@ -498,7 +241,7 @@ func Test_server_reconcileRole(t *testing.T) {
 	}
 }
 
-func Test_server_reconcileRoleBinding(t *testing.T) {
+func Test_client_reconcileRoleBinding(t *testing.T) {
 	tests := []struct {
 		name       string
 		labels     map[string]string
@@ -556,7 +299,7 @@ func Test_server_reconcileRoleBinding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &server{
+			s := &client{
 				logger:     logrtesting.TestLogger{t},
 				nameSuffix: tt.nameSuffix,
 				labels:     tt.labels,
@@ -589,12 +332,12 @@ func Test_server_reconcileRoleBinding(t *testing.T) {
 	}
 }
 
-func Test_server_reconcilePod(t *testing.T) {
+func Test_client_reconcilePod(t *testing.T) {
 	tests := []struct {
 		name            string
 		username        string
 		pvcList         transfer.PVCList
-		transportServer transport.Transport
+		transportClient transport.Transport
 		labels          map[string]string
 		ownerRefs       []metav1.OwnerReference
 		namespace       string
@@ -604,8 +347,9 @@ func Test_server_reconcilePod(t *testing.T) {
 		objects         []ctrlclient.Object
 	}{
 		{
-			name:     "test with no pod",
-			username: "root",
+			name:      "test with no pod",
+			namespace: "foo",
+			username:  "root",
 			pvcList: transfer.NewSingletonPVC(&corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pvc",
@@ -613,7 +357,7 @@ func Test_server_reconcilePod(t *testing.T) {
 				},
 			}),
 			listenPort:      8080,
-			transportServer: &fakeTransportServer{stunnel.TransportTypeStunnel},
+			transportClient: &fakeTransportClient{transportType: stunnel.TransportTypeStunnel},
 			labels:          map[string]string{"test": "me"},
 			ownerRefs:       testOwnerReferences(),
 			wantErr:         false,
@@ -621,8 +365,9 @@ func Test_server_reconcilePod(t *testing.T) {
 			objects:         []ctrlclient.Object{},
 		},
 		{
-			name:     "test with invalid pod",
-			username: "root",
+			name:      "test with invalid pod",
+			namespace: "foo",
+			username:  "root",
 			pvcList: transfer.NewSingletonPVC(&corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pvc",
@@ -630,7 +375,7 @@ func Test_server_reconcilePod(t *testing.T) {
 				},
 			}),
 			listenPort:      8080,
-			transportServer: &fakeTransportServer{stunnel.TransportTypeStunnel},
+			transportClient: &fakeTransportClient{transportType: stunnel.TransportTypeStunnel},
 			labels:          map[string]string{"test": "me"},
 			ownerRefs:       testOwnerReferences(),
 			wantErr:         false,
@@ -638,7 +383,7 @@ func Test_server_reconcilePod(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:            "rsync-server-foo",
+						Name:            "rsync-client-data-0",
 						Namespace:       "foo",
 						Labels:          map[string]string{"foo": "bar"},
 						OwnerReferences: []metav1.OwnerReference{},
@@ -647,8 +392,9 @@ func Test_server_reconcilePod(t *testing.T) {
 			},
 		},
 		{
-			name:     "test with valid pod",
-			username: "root",
+			name:      "test with valid pod",
+			namespace: "foo",
+			username:  "root",
 			pvcList: transfer.NewSingletonPVC(&corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pvc",
@@ -656,7 +402,7 @@ func Test_server_reconcilePod(t *testing.T) {
 				},
 			}),
 			listenPort:      8080,
-			transportServer: &fakeTransportServer{stunnel.TransportTypeStunnel},
+			transportClient: &fakeTransportClient{transportType: stunnel.TransportTypeStunnel},
 			labels:          map[string]string{"test": "me"},
 			ownerRefs:       testOwnerReferences(),
 			wantErr:         false,
@@ -664,8 +410,9 @@ func Test_server_reconcilePod(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:            "rsync-server-foo",
+						Name:            "rsync-client-foo",
 						Namespace:       "foo",
+						Annotations:     map[string]string{"pvc": "test-pvc"},
 						Labels:          map[string]string{"test": "me"},
 						OwnerReferences: testOwnerReferences(),
 					},
@@ -677,15 +424,14 @@ func Test_server_reconcilePod(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeClient := fakeClientWithObjects(tt.objects...)
 			ctx := context.WithValue(context.Background(), "test", tt.name)
-			s := &server{
+			s := &client{
 				logger:          logrtesting.TestLogger{t},
 				username:        tt.username,
 				pvcList:         tt.pvcList,
-				transportServer: tt.transportServer,
-				listenPort:      tt.listenPort,
 				nameSuffix:      tt.nameSuffix,
 				labels:          tt.labels,
 				ownerRefs:       tt.ownerRefs,
+				transportClient: tt.transportClient,
 			}
 			if err := s.reconcilePod(ctx, fakeClient, tt.namespace); (err != nil) != tt.wantErr {
 				t.Errorf("reconcilePod() error = %v, wantErr %v", err, tt.wantErr)
@@ -694,7 +440,7 @@ func Test_server_reconcilePod(t *testing.T) {
 			pod := &corev1.Pod{}
 			err := fakeClient.Get(context.Background(), types.NamespacedName{
 				Namespace: tt.namespace,
-				Name:      "rsync-server-" + tt.nameSuffix,
+				Name:      "rsync-client-foo",
 			}, pod)
 			if err != nil {
 				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
@@ -705,6 +451,114 @@ func Test_server_reconcilePod(t *testing.T) {
 			}
 			if !reflect.DeepEqual(pod.OwnerReferences, tt.ownerRefs) {
 				t.Error("pod does not have the right owner references")
+			}
+			if !reflect.DeepEqual(pod.Annotations, map[string]string{"pvc": tt.pvcList.PVCs()[0].Claim().Name}) {
+				t.Error("pod does not have the right annotations")
+			}
+		})
+	}
+}
+
+func Test_client_reconcileSecret(t *testing.T) {
+	tests := []struct {
+		name       string
+		password   string
+		labels     map[string]string
+		ownerRefs  []metav1.OwnerReference
+		namespace  string
+		wantErr    bool
+		nameSuffix string
+		objects    []ctrlclient.Object
+	}{
+		{
+			name:       "test with missing secret",
+			namespace:  "foo",
+			password:   "testme123",
+			labels:     map[string]string{"test": "me"},
+			ownerRefs:  testOwnerReferences(),
+			wantErr:    false,
+			nameSuffix: "foo",
+			objects:    []ctrlclient.Object{},
+		},
+		{
+			name:       "test with invalid secret data",
+			namespace:  "foo",
+			password:   "testme123",
+			labels:     map[string]string{"test": "me"},
+			ownerRefs:  testOwnerReferences(),
+			wantErr:    false,
+			nameSuffix: "foo",
+			objects: []ctrlclient.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            fmt.Sprintf("%s-%s", rsyncPassword, "foo"),
+						Namespace:       "foo",
+						Labels:          map[string]string{"foo": "bar"},
+						OwnerReferences: []metav1.OwnerReference{},
+					},
+					Data: map[string][]byte{
+						rsyncPasswordKey: []byte("badPassword"),
+					},
+				},
+			},
+		},
+		{
+			name:       "test with valid secret",
+			namespace:  "foo",
+			password:   "testme123",
+			labels:     map[string]string{"test": "me"},
+			ownerRefs:  testOwnerReferences(),
+			wantErr:    false,
+			nameSuffix: "foo",
+			objects: []ctrlclient.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            fmt.Sprintf("%s-%s", rsyncPassword, "foo"),
+						Namespace:       "foo",
+						Labels:          map[string]string{"foo": "bar"},
+						OwnerReferences: []metav1.OwnerReference{},
+					},
+					Data: map[string][]byte{
+						rsyncPasswordKey: []byte("testme123"),
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &client{
+				logger:     logrtesting.TestLogger{t},
+				nameSuffix: tt.nameSuffix,
+				labels:     tt.labels,
+				ownerRefs:  tt.ownerRefs,
+				password:   tt.password,
+			}
+
+			fakeClient := fakeClientWithObjects(tt.objects...)
+			ctx := context.WithValue(context.Background(), "test", tt.name)
+
+			if err := s.reconcilePassword(ctx, fakeClient, tt.namespace); (err != nil) != tt.wantErr {
+				t.Errorf("reconcilePassword() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			secret := &corev1.Secret{}
+			err := fakeClient.Get(context.Background(), types.NamespacedName{
+				Namespace: tt.namespace,
+				Name:      rsyncPassword + "-" + tt.nameSuffix,
+			}, secret)
+			if err != nil {
+				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
+			}
+
+			if !reflect.DeepEqual(secret.Labels, tt.labels) {
+				t.Error("secret does not have the right labels")
+			}
+			if !reflect.DeepEqual(secret.OwnerReferences, tt.ownerRefs) {
+				t.Error("secret does not have the right owner references")
+			}
+
+			if !reflect.DeepEqual(secret.Data, map[string][]byte{rsyncPasswordKey: []byte("testme123")}) {
+				t.Errorf("secret does not have the right password")
 			}
 		})
 	}
