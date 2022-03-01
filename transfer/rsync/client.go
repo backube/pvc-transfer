@@ -59,14 +59,14 @@ func (tc *client) Status(ctx context.Context, c ctrlclient.Client) (*transfer.St
 	}
 
 	for _, pod := range podList.Items {
-		if pod.Status.ContainerStatuses != nil || len(pod.Status.ContainerStatuses) > 0 {
+		if len(pod.Status.ContainerStatuses) > 0 {
 			for _, containerStatus := range pod.Status.ContainerStatuses {
 				if containerStatus.Name == "rsync" && containerStatus.State.Terminated != nil {
 					if containerStatus.State.Terminated.ExitCode == 0 {
 						return &transfer.Status{
 							Completed: &transfer.Completed{
-								Successful: pointer.BoolPtr(true),
-								Failure:    pointer.BoolPtr(false),
+								Successful: true,
+								Failure:    false,
 								FinishedAt: &containerStatus.State.Terminated.FinishedAt,
 							},
 						}, nil
@@ -74,8 +74,8 @@ func (tc *client) Status(ctx context.Context, c ctrlclient.Client) (*transfer.St
 						return &transfer.Status{
 							Running: nil,
 							Completed: &transfer.Completed{
-								Successful: pointer.Bool(false),
-								Failure:    pointer.Bool(true),
+								Successful: false,
+								Failure:    true,
 								FinishedAt: &containerStatus.State.Terminated.FinishedAt,
 							},
 						}, nil
@@ -141,7 +141,19 @@ func (tc *client) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, 
 			Namespace: tc.namespace,
 		},
 	}
-	return utils.UpdateWithLabel(ctx, c, roleBinding, key, value)
+	err = utils.UpdateWithLabel(ctx, c, roleBinding, key, value)
+	if err != nil {
+		return err
+	}
+
+	// update secret
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s", rsyncPassword, tc.nameSuffix),
+			Namespace: tc.namespace,
+		},
+	}
+	return utils.UpdateWithLabel(ctx, c, secret, key, value)
 }
 
 // NewClient takes PVCList, transport and endpoint object and creates all
@@ -154,7 +166,7 @@ func (tc *client) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, 
 // to retry with a different suffix until retries are added to the client package
 
 // In order to generate the right RBAC, add the following lines to the Reconcile function annotations.
-// +kubebuilder:rbac:groups=core,resources=pods;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 func NewClient(ctx context.Context, c ctrlclient.Client,
 	pvcList transfer.PVCList,
@@ -179,7 +191,7 @@ func NewClient(ctx context.Context, c ctrlclient.Client,
 	var namespace string
 	namespaces := pvcList.Namespaces()
 	if len(namespaces) > 0 {
-		namespace = pvcList.Namespaces()[0]
+		namespace = namespaces[0]
 	}
 
 	for _, ns := range namespaces {
@@ -198,6 +210,7 @@ func NewClient(ctx context.Context, c ctrlclient.Client,
 		tc.reconcileServiceAccount,
 		tc.reconcileRole,
 		tc.reconcileRoleBinding,
+		tc.reconcilePassword,
 		tc.reconcilePod,
 	}
 
@@ -215,7 +228,7 @@ func NewClient(ctx context.Context, c ctrlclient.Client,
 // TODO: add retries
 func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns string) error {
 	var errs []error
-	rsyncOptions, err := GetRsyncCommandDefaultFlags()
+	rsyncOptions, err := rsyncCommandWithDefaultFlags()
 	if err != nil {
 		tc.logger.Error(err, "unable to get default flags for rsync command")
 		return err
@@ -231,8 +244,14 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 				Command: rsyncContainerCommand,
 				Env: []corev1.EnvVar{
 					{
-						Name:  "RSYNC_PASSWORD",
-						Value: tc.password,
+						Name: rsyncPasswordKey,
+						ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{},
+								Key:                  rsyncPasswordKey,
+								Optional:             pointer.Bool(true),
+							},
+						},
 					},
 				},
 
@@ -243,7 +262,7 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 					},
 					{
 						Name:      "rsync-communication",
-						MountPath: "/usr/share/rsync",
+						MountPath: rsyncCommunicationMountPath,
 					},
 				},
 			},
@@ -268,7 +287,7 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 			{
 				Name: "rsync-communication",
 				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumDefault},
+					EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumMemory},
 				},
 			},
 		}
@@ -319,7 +338,8 @@ func (tc *client) getCommand(rsyncOptions []string, pvc transfer.PVC) []string {
 			tc.Transport().Hostname(),
 			pvc.LabelSafeName(), tc.Transport().ListenPort()))
 	rsyncCommandBashScript := fmt.Sprintf(
-		"trap \"touch /usr/share/rsync/rsync-client-container-done\" EXIT SIGINT SIGTERM; timeout=120; SECONDS=0; while [ $SECONDS -lt $timeout ]; do nc -z localhost %d; rc=$?; if [ $rc -eq 0 ]; then %s; rc=$?; break; fi; done; exit $rc;",
+		"trap \"touch %s/rsync-client-container-done\" EXIT SIGINT SIGTERM; timeout=120; SECONDS=0; while [ $SECONDS -lt $timeout ]; do nc -z localhost %d; rc=$?; if [ $rc -eq 0 ]; then %s; rc=$?; break; fi; done; exit $rc;",
+		rsyncCommunicationMountPath,
 		tc.Transport().ListenPort(),
 		strings.Join(rsyncCommand, " "))
 	rsyncContainerCommand := []string{
@@ -347,21 +367,21 @@ func customizeTransportClientContainers(transportClient transport.Transport) err
 		stunnelContainer.Command = []string{
 			"/bin/bash",
 			"-c",
-			`/bin/stunnel /etc/stunnel/stunnel.conf
+			fmt.Sprintf(`/bin/stunnel /etc/stunnel/stunnel.conf
 while true
-do test -f /usr/share/rsync/rsync-client-container-done
+do test -f %s/rsync-client-container-done
 if [ $? -eq 0 ]
 then
 break
 fi
 done
-exit 0`,
+exit 0`, rsyncCommunicationMountPath),
 		}
 		stunnelContainer.VolumeMounts = append(
 			stunnelContainer.VolumeMounts,
 			corev1.VolumeMount{
 				Name:      "rsync-communication",
-				MountPath: "/usr/share/rsync",
+				MountPath: rsyncCommunicationMountPath,
 			})
 	}
 	return nil
@@ -424,6 +444,24 @@ func (tc *client) reconcileRoleBinding(ctx context.Context, c ctrlclient.Client,
 		}
 		roleBinding.Subjects = []rbacv1.Subject{
 			{Kind: "ServiceAccount", Name: fmt.Sprintf("%s-%s", rsyncServiceAccount, tc.nameSuffix)},
+		}
+		return nil
+	})
+	return err
+}
+
+func (tc *client) reconcilePassword(ctx context.Context, c ctrlclient.Client, namespace string) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s", rsyncPassword, tc.nameSuffix),
+			Namespace: namespace,
+		},
+	}
+	_, err := ctrlutil.CreateOrUpdate(ctx, c, secret, func() error {
+		secret.OwnerReferences = tc.ownerRefs
+		secret.Labels = tc.labels
+		secret.Data = map[string][]byte{
+			rsyncPasswordKey: []byte(tc.password),
 		}
 		return nil
 	})

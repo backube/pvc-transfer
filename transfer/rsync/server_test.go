@@ -283,7 +283,7 @@ func Test_server_reconcileSecret(t *testing.T) {
 			}
 			err := s.reconcileSecret(ctx, fakeClient, tt.namespace)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("reconcileSecret() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("reconcilePassword() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
 				return

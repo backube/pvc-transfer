@@ -145,7 +145,7 @@ func filterRsyncExtraOptions(options []string) (validatedOptions []string, err e
 	return validatedOptions, errorsutil.NewAggregate(errs)
 }
 
-func getRsyncCommandDefaultOptions() []Applier {
+func rsyncCommandDefaultOptions() []Applier {
 	return []Applier{
 		ArchiveFiles(true),
 		StandardProgress(true),
@@ -162,9 +162,9 @@ func (c *CommandOptions) Apply(opts ...Applier) error {
 	return errorsutil.NewAggregate(errs)
 }
 
-func GetRsyncCommandDefaultFlags() ([]string, error) {
+func rsyncCommandWithDefaultFlags() ([]string, error) {
 	c := CommandOptions{}
-	defaultOptions := getRsyncCommandDefaultOptions()
+	defaultOptions := rsyncCommandDefaultOptions()
 	err := c.Apply(defaultOptions...)
 	if err != nil {
 		return nil, err

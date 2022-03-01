@@ -10,14 +10,17 @@ const (
 )
 
 const (
-	rsyncImage          = "quay.io/konveyor/rsync-transfer:latest"
-	rsyncConfig         = "backube-rsync-config"
-	rsyncSecretPrefix   = "backube-rsync"
-	rsyncServiceAccount = "backube-rsync-sa"
-	rsyncRole           = "backube-rsync-role"
-	rsyncRoleBinding    = "backube-rsync-rolebinding"
-	rsyncdLogDir        = "rsyncd-logs"
-	rsyncdLogDirPath    = "/var/log/rsyncd/"
+	rsyncImage                  = "quay.io/konveyor/rsync-transfer:latest"
+	rsyncConfig                 = "backube-rsync-config"
+	rsyncSecretPrefix           = "backube-rsync"
+	rsyncServiceAccount         = "backube-rsync-sa"
+	rsyncRole                   = "backube-rsync-role"
+	rsyncPassword               = "backube-rsync-password"
+	rsyncPasswordKey            = "RSYNC_PASSWORD"
+	rsyncCommunicationMountPath = "/usr/share/rsync"
+	rsyncRoleBinding            = "backube-rsync-rolebinding"
+	rsyncdLogDir                = "rsyncd-logs"
+	rsyncdLogDirPath            = "/var/log/rsyncd/"
 )
 
 // applyPodOptions take a PodSpec and PodOptions, applies
