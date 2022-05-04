@@ -95,6 +95,7 @@ func TestNew(t *testing.T) {
 		name            string
 		namespacedName  types.NamespacedName
 		eType           EndpointType
+		subdomain       *string
 		labels          map[string]string
 		ownerReferences []metav1.OwnerReference
 		want            endpoint.Endpoint
@@ -108,6 +109,7 @@ func TestNew(t *testing.T) {
 			eType:           EndpointTypePassthrough,
 			labels:          map[string]string{"test": "me"},
 			ownerReferences: testOwnerReferences(),
+			subdomain:       nil,
 			wantErr:         true,
 			admitted:        false,
 			alreadyCreated:  false,
@@ -118,6 +120,7 @@ func TestNew(t *testing.T) {
 			eType:           EndpointTypePassthrough,
 			labels:          map[string]string{"test": "me"},
 			ownerReferences: testOwnerReferences(),
+			subdomain:       nil,
 			wantErr:         true,
 			admitted:        false,
 			alreadyCreated:  true,
@@ -128,6 +131,7 @@ func TestNew(t *testing.T) {
 			eType:           EndpointTypePassthrough,
 			labels:          map[string]string{"test": "me"},
 			ownerReferences: testOwnerReferences(),
+			subdomain:       nil,
 			wantErr:         false,
 			admitted:        true,
 			alreadyCreated:  true,
@@ -144,7 +148,7 @@ func TestNew(t *testing.T) {
 			AddToScheme(fakeClient.Scheme())
 			ctx := context.WithValue(context.Background(), "test", tt.name)
 			fakeLogger := logrtesting.TestLogger{t}
-			_, gotError := New(ctx, fakeClient, fakeLogger, tt.namespacedName, tt.eType, tt.labels, tt.ownerReferences)
+			_, gotError := New(ctx, fakeClient, fakeLogger, tt.namespacedName, tt.eType, tt.subdomain, tt.labels, tt.ownerReferences)
 			route := &routev1.Route{}
 			err := fakeClient.Get(context.Background(), tt.namespacedName, route)
 			if err != nil {

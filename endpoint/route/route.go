@@ -63,6 +63,7 @@ type route struct {
 	hostname string
 	logger   logr.Logger
 
+	subdomain       *string
 	port            int32
 	endpointType    EndpointType
 	namespacedName  types.NamespacedName
@@ -89,6 +90,7 @@ type route struct {
 func New(ctx context.Context, c client.Client, logger logr.Logger,
 	namespacedName types.NamespacedName,
 	eType EndpointType,
+	subdomain *string,
 	labels map[string]string,
 	ownerReferences []metav1.OwnerReference) (endpoint.Endpoint, error) {
 	if eType != EndpointTypePassthrough && eType != EndpointTypeInsecureEdge {
@@ -101,6 +103,7 @@ func New(ctx context.Context, c client.Client, logger logr.Logger,
 		namespacedName:  namespacedName,
 		endpointType:    eType,
 		labels:          labels,
+		subdomain:       subdomain,
 		ownerReferences: ownerReferences,
 	}
 

@@ -229,6 +229,7 @@ func (s *server) ListenPort() int32 {
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
 func NewServerWithStunnelRoute(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	pvcList transfer.PVCList,
+	subdomain *string,
 	labels map[string]string,
 	ownerRefs []metav1.OwnerReference,
 	password string, podOptions transfer.PodOptions) (transfer.Server, error) {
@@ -252,7 +253,7 @@ func NewServerWithStunnelRoute(ctx context.Context, c ctrlclient.Client, logger 
 	e, err := route.New(ctx, c, logger, types.NamespacedName{
 		Namespace: namespace,
 		Name:      hm[namespace],
-	}, route.EndpointTypePassthrough, labels, ownerRefs)
+	}, route.EndpointTypePassthrough, subdomain, labels, ownerRefs)
 	if err != nil {
 		return nil, err
 	}
