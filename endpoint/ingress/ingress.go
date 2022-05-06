@@ -115,7 +115,7 @@ func (i *ingress) MarkForCleanup(ctx context.Context, c client.Client, key, valu
 // AddToScheme should be used as soon as scheme is created to add
 // core  objects for encoding/decoding
 func AddToScheme(scheme *runtime.Scheme) error {
-	return corev1.AddToScheme(scheme)
+	return networkingv1.AddToScheme(scheme)
 }
 
 // APIsToWatch give a list of APIs to watch if using this package
@@ -153,22 +153,15 @@ func New(ctx context.Context, c client.Client, logger logr.Logger,
 		subdomain:          subdomain,
 	}
 
-	if ingressClassName == nil {
+	if ingressClassName == nil || *ingressClassName == "" {
 		ingressLogger.Info("ingress class not specified, using default ingress class in the cluster")
 	}
 
 	if subdomain == nil {
 		return nil, fmt.Errorf("subdomain cannot be nil")
-	} else {
-		prefix := fmt.Sprintf("%s-%s",
-			ingressEndpoint.namespacedName.Name,
-			ingressEndpoint.namespacedName.Namespace)
-		if len(prefix) > 62 {
-			prefix = prefix[0:62]
-		}
-		ingressEndpoint.hostname = fmt.Sprintf(
-			"%s.%s", prefix, *subdomain)
 	}
+
+	ingressEndpoint.setHostname(*subdomain)
 
 	err := ingressEndpoint.reconcileServiceForIngress(ctx, c)
 	if err != nil {
@@ -181,6 +174,17 @@ func New(ctx context.Context, c client.Client, logger logr.Logger,
 	}
 
 	return ingressEndpoint, nil
+}
+
+func (i *ingress) setHostname(subdomain string) {
+	prefix := fmt.Sprintf("%s-%s",
+		i.namespacedName.Name,
+		i.namespacedName.Namespace)
+	if len(prefix) > 62 {
+		prefix = prefix[0:62]
+	}
+	i.hostname = fmt.Sprintf(
+		"%s.%s", prefix, subdomain)
 }
 
 func (i *ingress) reconcileServiceForIngress(ctx context.Context, c client.Client) error {
