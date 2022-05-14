@@ -208,7 +208,7 @@ func Test_ingress_reconcileIngress(t *testing.T) {
 		labels             map[string]string
 		ingressAnnotations map[string]string
 		ownerReferences    []metav1.OwnerReference
-		subdomain          *string
+		subdomain          string
 	}
 	tests := []struct {
 		name         string
@@ -222,7 +222,7 @@ func Test_ingress_reconcileIngress(t *testing.T) {
 			c:    fake.NewClientBuilder().Build(),
 			fields: fields{
 				namespacedName: types.NamespacedName{Name: "test", Namespace: "test-ns"},
-				subdomain:      &testSubdomain,
+				subdomain:      testSubdomain,
 				ingressAnnotations: map[string]string{
 					"nginx.ingress.kubernetes.io/ssl-passthrough": "true",
 				},
@@ -238,7 +238,7 @@ func Test_ingress_reconcileIngress(t *testing.T) {
 				&networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "test-ns"}}).Build(),
 			fields: fields{
 				namespacedName: types.NamespacedName{Name: "test", Namespace: "test-ns"},
-				subdomain:      &testSubdomain,
+				subdomain:      testSubdomain,
 				ingressAnnotations: map[string]string{
 					"nginx.ingress.kubernetes.io/ssl-passthrough": "true",
 				},
@@ -263,7 +263,7 @@ func Test_ingress_reconcileIngress(t *testing.T) {
 				}).Build(),
 			fields: fields{
 				namespacedName: types.NamespacedName{Name: "test", Namespace: "test-ns"},
-				subdomain:      &testSubdomain,
+				subdomain:      testSubdomain,
 				ingressAnnotations: map[string]string{
 					"nginx.ingress.kubernetes.io/ssl-passthrough": "true",
 				},

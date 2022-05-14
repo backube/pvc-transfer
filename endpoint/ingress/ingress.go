@@ -36,7 +36,7 @@ type ingress struct {
 	ingressPort        int32
 	backendPort        int32
 	ingressClassName   *string
-	subdomain          *string
+	subdomain          string
 	hostname           string
 }
 
@@ -136,7 +136,7 @@ func APIsToWatch() ([]client.Object, error) {
 func New(ctx context.Context, c client.Client, logger logr.Logger,
 	namespacedName types.NamespacedName,
 	ingressClassName *string,
-	subdomain *string,
+	subdomain string,
 	labels, ingressAnnotations map[string]string,
 	ownerReferences []metav1.OwnerReference) (endpoint.Endpoint, error) {
 	ingressLogger := logger.WithValues("ingress", namespacedName)
@@ -157,11 +157,11 @@ func New(ctx context.Context, c client.Client, logger logr.Logger,
 		ingressLogger.Info("ingress class not specified, using default ingress class in the cluster")
 	}
 
-	if subdomain == nil {
+	if subdomain == "" {
 		return nil, fmt.Errorf("subdomain cannot be nil")
 	}
 
-	ingressEndpoint.setHostname(*subdomain)
+	ingressEndpoint.setHostname(subdomain)
 
 	err := ingressEndpoint.reconcileServiceForIngress(ctx, c)
 	if err != nil {
