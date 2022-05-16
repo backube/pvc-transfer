@@ -58,3 +58,13 @@ jobs:
 
       - name: Test
         run: cd main && go test -v ./...
+
+  # This is a dummy job that can be used to determine success of CI
+  # This job should depend on all tests that must pass
+  test-success:
+    name: Successful tests
+    needs: [build, lint]
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Success
+        run: echo "Previous steps were successful"
