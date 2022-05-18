@@ -173,6 +173,7 @@ func NewClient(ctx context.Context, c ctrlclient.Client,
 	pvcList transfer.PVCList,
 	t transport.Transport,
 	e endpoint.Endpoint,
+	logger logr.Logger,
 	nameSuffix string,
 	labels map[string]string,
 	ownerRefs []metav1.OwnerReference,
@@ -187,6 +188,7 @@ func NewClient(ctx context.Context, c ctrlclient.Client,
 		labels:          labels,
 		ownerRefs:       ownerRefs,
 		options:         podOptions,
+		logger:          logger,
 	}
 
 	var namespace string
@@ -254,9 +256,11 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 						Name: rsyncPasswordKey,
 						ValueFrom: &corev1.EnvVarSource{
 							SecretKeyRef: &corev1.SecretKeySelector{
-								LocalObjectReference: corev1.LocalObjectReference{},
-								Key:                  rsyncPasswordKey,
-								Optional:             pointer.Bool(true),
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: tc.getPasswordSecretName(),
+								},
+								Key:      rsyncPasswordKey,
+								Optional: pointer.Bool(true),
 							},
 						},
 					},
@@ -460,7 +464,7 @@ func (tc *client) reconcileRoleBinding(ctx context.Context, c ctrlclient.Client,
 func (tc *client) reconcilePassword(ctx context.Context, c ctrlclient.Client, namespace string) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", rsyncPassword, tc.nameSuffix),
+			Name:      tc.getPasswordSecretName(),
 			Namespace: namespace,
 		},
 	}
@@ -473,4 +477,8 @@ func (tc *client) reconcilePassword(ctx context.Context, c ctrlclient.Client, na
 		return nil
 	})
 	return err
+}
+
+func (tc *client) getPasswordSecretName() string {
+	return fmt.Sprintf("%s-%s", rsyncPassword, tc.nameSuffix)
 }
