@@ -37,7 +37,6 @@ type ingress struct {
 	backendPort        int32
 	ingressClassName   *string
 	subdomain          string
-	hostname           string
 }
 
 func (i *ingress) NamespacedName() types.NamespacedName {
@@ -45,7 +44,14 @@ func (i *ingress) NamespacedName() types.NamespacedName {
 }
 
 func (i *ingress) Hostname() string {
-	return i.hostname
+	prefix := fmt.Sprintf("%s-%s",
+		i.namespacedName.Name,
+		i.namespacedName.Namespace)
+	if len(prefix) > 62 {
+		prefix = prefix[0:62]
+	}
+	return fmt.Sprintf(
+		"%s.%s", prefix, i.subdomain)
 }
 
 func (i *ingress) BackendPort() int32 {
@@ -158,10 +164,8 @@ func New(ctx context.Context, c client.Client, logger logr.Logger,
 	}
 
 	if subdomain == "" {
-		return nil, fmt.Errorf("subdomain cannot be nil")
+		return nil, fmt.Errorf("subdomain cannot be empty")
 	}
-
-	ingressEndpoint.setHostname(subdomain)
 
 	err := ingressEndpoint.reconcileServiceForIngress(ctx, c)
 	if err != nil {
@@ -174,17 +178,6 @@ func New(ctx context.Context, c client.Client, logger logr.Logger,
 	}
 
 	return ingressEndpoint, nil
-}
-
-func (i *ingress) setHostname(subdomain string) {
-	prefix := fmt.Sprintf("%s-%s",
-		i.namespacedName.Name,
-		i.namespacedName.Namespace)
-	if len(prefix) > 62 {
-		prefix = prefix[0:62]
-	}
-	i.hostname = fmt.Sprintf(
-		"%s.%s", prefix, subdomain)
 }
 
 func (i *ingress) reconcileServiceForIngress(ctx context.Context, c client.Client) error {

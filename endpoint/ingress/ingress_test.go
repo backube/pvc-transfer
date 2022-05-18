@@ -302,7 +302,11 @@ func Test_ingress_reconcileIngress(t *testing.T) {
 				t.Errorf("New() ownerReferences = %v, wantOwnerReferences %v", ingress.Labels, tt.fields.labels)
 			}
 			if len(ingress.Spec.Rules) < 1 || ingress.Spec.Rules[0].Host != tt.wantHostname {
-				t.Errorf("New() host = %v, wantHost %v", ingress.Spec.Rules, tt.wantHostname)
+				if len(ingress.Spec.Rules) < 1 {
+					t.Errorf("New() ingress.Spec.Rules not set")
+				} else {
+					t.Errorf("New() host = %v, wantHost %v", ingress.Spec.Rules[0].Host, tt.wantHostname)
+				}
 			}
 		})
 	}
