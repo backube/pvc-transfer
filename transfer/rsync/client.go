@@ -237,11 +237,20 @@ func NewClient(ctx context.Context, c ctrlclient.Client,
 // TODO: add retries
 func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns string) error {
 	var errs []error
-	rsyncOptions, err := rsyncCommandWithDefaultFlags()
+
+	rsyncOptions, err := rsyncDefaultOptions()
 	if err != nil {
-		tc.logger.Error(err, "unable to get default flags for rsync command")
+		tc.logger.Error(err, "unable to get default options for rsync command")
 		return err
 	}
+	if tc.options.CommandOptions != nil {
+		rsyncOptions, err = tc.options.CommandOptions.Options()
+		if err != nil {
+			tc.logger.Error(err, "unable to apply custom options for rsync command")
+			return err
+		}
+	}
+
 	for _, pvc := range tc.pvcList.InNamespace(ns).PVCs() {
 		// create Rsync command for PVC
 		rsyncContainerCommand := tc.getCommand(rsyncOptions, pvc)

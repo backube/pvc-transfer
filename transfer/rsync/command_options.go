@@ -2,9 +2,11 @@ package rsync
 
 import (
 	"fmt"
-	errorsutil "k8s.io/apimachinery/pkg/util/errors"
 	"regexp"
 	"strings"
+
+	"github.com/backube/pvc-transfer/transfer"
+	errorsutil "k8s.io/apimachinery/pkg/util/errors"
 )
 
 const (
@@ -53,8 +55,8 @@ type CommandOptions struct {
 	Extras        []string
 }
 
-// AsRsyncCommandOptions returns validated rsync options and validation errors as two lists
-func (c *CommandOptions) AsRsyncCommandOptions() ([]string, error) {
+// Options returns validated rsync options and validation errors as two lists
+func (c *CommandOptions) Options() ([]string, error) {
 	var errs []error
 	opts := []string{}
 	if c.Recursive {
@@ -119,6 +121,13 @@ func (c *CommandOptions) AsRsyncCommandOptions() ([]string, error) {
 	return opts, errorsutil.NewAggregate(errs)
 }
 
+func NewDefaultOptionsFrom(opts ...Applier) transfer.CommandOptions {
+	c := &CommandOptions{}
+	c.Apply(rsyncCommandDefaultOptions()...)
+	c.Apply(opts...)
+	return c
+}
+
 func filterRsyncInfoOptions(options []string) (validatedOptions []string, err error) {
 	var errs []error
 	r := regexp.MustCompile(`^[A-Z]+\d?$`)
@@ -162,14 +171,14 @@ func (c *CommandOptions) Apply(opts ...Applier) error {
 	return errorsutil.NewAggregate(errs)
 }
 
-func rsyncCommandWithDefaultFlags() ([]string, error) {
+func rsyncDefaultOptions() ([]string, error) {
 	c := CommandOptions{}
 	defaultOptions := rsyncCommandDefaultOptions()
 	err := c.Apply(defaultOptions...)
 	if err != nil {
 		return nil, err
 	}
-	return c.AsRsyncCommandOptions()
+	return c.Options()
 }
 
 type ArchiveFiles bool
