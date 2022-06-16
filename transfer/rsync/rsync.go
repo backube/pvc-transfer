@@ -35,7 +35,8 @@ func applyPodOptions(podSpec *corev1.PodSpec, options transfer.PodOptions) {
 	podSpec.NodeSelector = options.NodeSelector
 	podSpec.NodeName = options.NodeName
 	podSpec.SecurityContext = &options.PodSecurityContext
-	for _, c := range podSpec.Containers {
+	for i := range podSpec.Containers {
+		c := &podSpec.Containers[i]
 		c.SecurityContext = &options.ContainerSecurityContext
 		c.Resources = options.Resources
 	}
