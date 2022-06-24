@@ -27,8 +27,8 @@ func NamespaceHashForNames(pvcs PVCList) map[string]string {
 	for _, pvc := range pvcs.PVCs() {
 		p[pvc.Claim().Namespace] += pvc.Claim().Name
 	}
-	for _, ns := range p {
-		p[ns] = getMD5Hash(p[ns])
+	for key, val := range p {
+		p[key] = getMD5Hash(val)
 	}
 	return p
 }
