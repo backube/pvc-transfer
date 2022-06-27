@@ -44,9 +44,6 @@ func APIsToWatch() ([]ctrlclient.Object, error) {
 		&corev1.Secret{},
 		&corev1.ConfigMap{},
 		&corev1.Pod{},
-		&corev1.ServiceAccount{},
-		&rbacv1.RoleBinding{},
-		&rbacv1.Role{},
 	}, nil
 }
 
@@ -62,8 +59,7 @@ hosts allow = ::1, 127.0.0.1, localhost
 {{- else }}
 hosts allow = *.*.*.*, *
 {{- end }}
-uid = root
-gid = root
+
 {{ range $i, $pvc := .PVCList }}
 [{{ $pvc.LabelSafeName }}]
     comment = archive for {{ $pvc.Claim.Namespace }}/{{ $pvc.Claim.Name }}
@@ -104,7 +100,6 @@ type server struct {
 	// TODO: this is a temporary field that needs to give away once multiple
 	//  namespace pvcList is supported
 	namespace string
-	scc       string
 }
 
 func (s *server) Endpoint() endpoint.Endpoint {
@@ -303,12 +298,6 @@ func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 		namespace = pvcList.Namespaces()[0]
 	}
 
-	if podOptions.SCCName == nil || (podOptions.SCCName != nil && *podOptions.SCCName == "") {
-		//TODO: raise a warning event
-	} else {
-		r.scc = *podOptions.SCCName
-	}
-
 	r.nameSuffix = transfer.NamespaceHashForNames(pvcList)[namespace][:10]
 	r.logger = logger.WithValues("rsyncServer", r.nameSuffix)
 
@@ -325,9 +314,6 @@ func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	reconcilers := []reconcileFunc{
 		r.reconcileConfigMap,
 		r.reconcileSecret,
-		r.reconcileServiceAccount,
-		r.reconcileRole,
-		r.reconcileRoleBinding,
 		r.reconcilePod,
 	}
 
@@ -430,7 +416,7 @@ func (s *server) reconcilePod(ctx context.Context, c ctrlclient.Client, namespac
 		Containers:         containers,
 		Volumes:            volumes,
 		RestartPolicy:      corev1.RestartPolicyNever,
-		ServiceAccountName: fmt.Sprintf("%s-%s", rsyncServiceAccount, s.nameSuffix),
+		ServiceAccountName: s.options.ServiceAccountName,
 	}
 
 	applyPodOptions(&podSpec, s.options)
@@ -502,7 +488,7 @@ func (s *server) getPVCVolumeMounts(namespace string) []corev1.VolumeMount {
 }
 
 func (s *server) getContainers(volumeMounts []corev1.VolumeMount) []corev1.Container {
-	rsyncCommandTemplate := `/usr/bin/rsync --daemon --no-detach --port=` + strconv.Itoa(int(s.ListenPort())) + ` -vvv | tee ` + rsyncdLogDirPath + `rsync.log &
+	rsyncCommandTemplate := `touch ` + rsyncdLogDirPath + `rsync.log; /usr/bin/rsync --daemon --no-detach --port=` + strconv.Itoa(int(s.ListenPort())) + ` -vvv | tee ` + rsyncdLogDirPath + `rsync.log &
 while true; do
 	grep "_exit_cleanup" ` + rsyncdLogDirPath + `rsync.log >> /dev/null
 	if [[ $? -eq 0 ]]
@@ -567,67 +553,4 @@ func (s *server) getConfigVolumeMounts() []corev1.VolumeMount {
 			MountPath: rsyncdLogDirPath,
 		},
 	}
-}
-
-func (s *server) reconcileServiceAccount(ctx context.Context, c ctrlclient.Client, namespace string) error {
-	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", rsyncServiceAccount, s.nameSuffix),
-			Namespace: namespace,
-		},
-	}
-	_, err := ctrlutil.CreateOrUpdate(ctx, c, sa, func() error {
-		sa.Labels = s.labels
-		sa.OwnerReferences = s.ownerRefs
-		return nil
-	})
-	return err
-}
-
-func (s *server) reconcileRole(ctx context.Context, c ctrlclient.Client, namespace string) error {
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", rsyncRole, s.nameSuffix),
-			Namespace: namespace,
-		},
-	}
-	_, err := ctrlutil.CreateOrUpdate(ctx, c, role, func() error {
-		role.OwnerReferences = s.ownerRefs
-		role.Labels = s.labels
-		role.Rules = []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{"security.openshift.io"},
-				Resources: []string{"securitycontextconstraints"},
-				// Must match the name of the SCC that is deployed w/ the operator
-				// config/openshift/mover_scc.yaml
-				ResourceNames: []string{s.scc},
-				Verbs:         []string{"use"},
-			},
-		}
-		return nil
-	})
-	return err
-}
-
-func (s *server) reconcileRoleBinding(ctx context.Context, c ctrlclient.Client, namespace string) error {
-	roleBinding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", rsyncRoleBinding, s.nameSuffix),
-			Namespace: namespace,
-		},
-	}
-	_, err := ctrlutil.CreateOrUpdate(ctx, c, roleBinding, func() error {
-		roleBinding.OwnerReferences = s.ownerRefs
-		roleBinding.Labels = s.labels
-		roleBinding.RoleRef = rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     fmt.Sprintf("%s-%s", rsyncRole, s.nameSuffix),
-		}
-		roleBinding.Subjects = []rbacv1.Subject{
-			{Kind: "ServiceAccount", Name: fmt.Sprintf("%s-%s", rsyncServiceAccount, s.nameSuffix)},
-		}
-		return nil
-	})
-	return err
 }

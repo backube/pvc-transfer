@@ -48,8 +48,8 @@ type Client interface {
 
 // PodOptions allow callers to pass custom configuration for the transfer pods
 type PodOptions struct {
-	// For openshift environment, users can pass in the SCC name
-	SCCName *string
+	// users can pass in the SA for transfer pods to use
+	ServiceAccountName string
 	// PodSecurityContext determines what GID the rsync process gets
 	// In case of shared storage SupplementalGroups is configured to get the gid
 	// In case of block storage FSGroup is configured to get the gid

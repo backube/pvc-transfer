@@ -37,7 +37,6 @@ type client struct {
 	// TODO: this is a temporary field that needs to give away once multiple
 	//  namespace pvcList is supported
 	namespace string
-	scc       string
 }
 
 func (tc *client) Transport() transport.Transport {
@@ -208,17 +207,8 @@ func NewClient(ctx context.Context, c ctrlclient.Client,
 	}
 	tc.namespace = namespace
 
-	if podOptions.SCCName == nil || (podOptions.SCCName != nil && *podOptions.SCCName == "") {
-		//TODO: raise a warning event
-	} else {
-		tc.scc = *podOptions.SCCName
-	}
-
 	tc.nameSuffix = transfer.NamespaceHashForNames(pvcList)[namespace][:10]
 	reconcilers := []reconcileFunc{
-		tc.reconcileServiceAccount,
-		tc.reconcileRole,
-		tc.reconcileRoleBinding,
 		tc.reconcilePassword,
 		tc.reconcilePod,
 	}
@@ -316,7 +306,7 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 			Containers:         containers,
 			Volumes:            volumes,
 			RestartPolicy:      corev1.RestartPolicyNever,
-			ServiceAccountName: fmt.Sprintf("%s-%s", rsyncServiceAccount, tc.nameSuffix),
+			ServiceAccountName: tc.options.ServiceAccountName,
 		}
 
 		applyPodOptions(&podSpec, tc.options)
@@ -351,9 +341,9 @@ func (tc *client) getCommand(rsyncOptions []string, pvc transfer.PVC) []string {
 	// TODO: add a stub for null transport
 	rsyncCommand := []string{"/usr/bin/rsync"}
 	rsyncCommand = append(rsyncCommand, rsyncOptions...)
-	rsyncCommand = append(rsyncCommand, fmt.Sprintf("/mnt/%s/%s", pvc.Claim().Namespace, pvc.LabelSafeName()))
+	rsyncCommand = append(rsyncCommand, fmt.Sprintf("/mnt/%s/%s/", pvc.Claim().Namespace, pvc.LabelSafeName()))
 	rsyncCommand = append(rsyncCommand,
-		fmt.Sprintf("rsync://%s@%s/%s --port %d",
+		fmt.Sprintf("rsync://%s@%s/%s/ --port %d",
 			tc.username,
 			tc.Transport().Hostname(),
 			pvc.LabelSafeName(), tc.Transport().ListenPort()))
@@ -405,69 +395,6 @@ exit 0`, rsyncCommunicationMountPath),
 			})
 	}
 	return nil
-}
-
-func (tc *client) reconcileServiceAccount(ctx context.Context, c ctrlclient.Client, namespace string) error {
-	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", rsyncServiceAccount, tc.nameSuffix),
-			Namespace: namespace,
-		},
-	}
-	_, err := ctrlutil.CreateOrUpdate(ctx, c, sa, func() error {
-		sa.Labels = tc.labels
-		sa.OwnerReferences = tc.ownerRefs
-		return nil
-	})
-	return err
-}
-
-func (tc *client) reconcileRole(ctx context.Context, c ctrlclient.Client, namespace string) error {
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", rsyncRole, tc.nameSuffix),
-			Namespace: namespace,
-		},
-	}
-	_, err := ctrlutil.CreateOrUpdate(ctx, c, role, func() error {
-		role.OwnerReferences = tc.ownerRefs
-		role.Labels = tc.labels
-		role.Rules = []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{"security.openshift.io"},
-				Resources: []string{"securitycontextconstraints"},
-				// Must match the name of the SCC that is deployed w/ the operator
-				// config/openshift/mover_scc.yaml
-				ResourceNames: []string{tc.scc},
-				Verbs:         []string{"use"},
-			},
-		}
-		return nil
-	})
-	return err
-}
-
-func (tc *client) reconcileRoleBinding(ctx context.Context, c ctrlclient.Client, namespace string) error {
-	roleBinding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", rsyncRoleBinding, tc.nameSuffix),
-			Namespace: namespace,
-		},
-	}
-	_, err := ctrlutil.CreateOrUpdate(ctx, c, roleBinding, func() error {
-		roleBinding.OwnerReferences = tc.ownerRefs
-		roleBinding.Labels = tc.labels
-		roleBinding.RoleRef = rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     fmt.Sprintf("%s-%s", rsyncRole, tc.nameSuffix),
-		}
-		roleBinding.Subjects = []rbacv1.Subject{
-			{Kind: "ServiceAccount", Name: fmt.Sprintf("%s-%s", rsyncServiceAccount, tc.nameSuffix)},
-		}
-		return nil
-	})
-	return err
 }
 
 func (tc *client) reconcilePassword(ctx context.Context, c ctrlclient.Client, namespace string) error {
