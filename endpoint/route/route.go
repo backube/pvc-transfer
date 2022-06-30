@@ -60,7 +60,7 @@ var IngressPort int32 = 443
 type EndpointType string
 
 type route struct {
-	hostname string
+	hostname *string
 	logger   logr.Logger
 
 	port            int32
@@ -89,6 +89,7 @@ type route struct {
 func New(ctx context.Context, c client.Client, logger logr.Logger,
 	namespacedName types.NamespacedName,
 	eType EndpointType,
+	hostname *string,
 	labels map[string]string,
 	ownerReferences []metav1.OwnerReference) (endpoint.Endpoint, error) {
 	if eType != EndpointTypePassthrough && eType != EndpointTypeInsecureEdge {
@@ -97,6 +98,7 @@ func New(ctx context.Context, c client.Client, logger logr.Logger,
 
 	rLogger := logger.WithValues("route", namespacedName)
 	r := &route{
+		hostname:        hostname,
 		logger:          rLogger,
 		namespacedName:  namespacedName,
 		endpointType:    eType,
@@ -123,15 +125,6 @@ func New(ctx context.Context, c client.Client, logger logr.Logger,
 		return nil, err
 	}
 
-	healthy, err := r.IsHealthy(ctx, c)
-	if err != nil {
-		return nil, err
-	}
-
-	if !healthy {
-		return nil, fmt.Errorf("route endpoint is not healthy")
-	}
-
 	return r, nil
 }
 
@@ -140,7 +133,10 @@ func (r *route) NamespacedName() types.NamespacedName {
 }
 
 func (r *route) Hostname() string {
-	return r.hostname
+	if r.hostname == nil {
+		return ""
+	}
+	return *r.hostname
 }
 
 func (r *route) BackendPort() int32 {
@@ -266,6 +262,10 @@ func (r *route) reconcileRoute(ctx context.Context, c client.Client) error {
 		route.Labels = r.labels
 		route.OwnerReferences = r.ownerReferences
 
+		if r.hostname != nil {
+			route.Spec.Host = *r.hostname
+		}
+
 		route.Spec.Port = &routev1.RoutePort{
 			TargetPort: intstr.FromInt(int(r.port)),
 		}
@@ -303,7 +303,7 @@ func (r *route) setFields(ctx context.Context, c client.Client) error {
 		return fmt.Errorf("route %s has empty spec.port field", r.NamespacedName())
 	}
 
-	r.hostname = route.Spec.Host
+	r.hostname = &route.Spec.Host
 
 	r.port = route.Spec.Port.TargetPort.IntVal
 

@@ -43,7 +43,7 @@ func Test_getExistingCert(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-stunnel-credentials",
+						Name:      "stunnel-credentials-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -60,7 +60,7 @@ func Test_getExistingCert(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-stunnel-credentials",
+						Name:      "stunnel-credentials-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -77,7 +77,7 @@ func Test_getExistingCert(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-stunnel-credentials",
+						Name:      "stunnel-credentials-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -94,7 +94,7 @@ func Test_getExistingCert(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-foo-stunnel-credentials",
+						Name:      "stunnel-credentials-foo-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -149,7 +149,7 @@ func Test_mrkForCleanup(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-server-stunnel-credentials",
+						Name:      "stunnel-credentials-server-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -157,7 +157,7 @@ func Test_mrkForCleanup(t *testing.T) {
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-client-stunnel-credentials",
+						Name:      "stunnel-credentials-client-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -165,7 +165,7 @@ func Test_mrkForCleanup(t *testing.T) {
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-ca-bundle-stunnel-credentials",
+						Name:      "stunnel-credentials-ca-bundle-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -173,7 +173,7 @@ func Test_mrkForCleanup(t *testing.T) {
 				},
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-foo-stunnel-config",
+						Name:      "stunnel-config-foo-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -183,22 +183,22 @@ func Test_mrkForCleanup(t *testing.T) {
 			verifyObjects: []ctrlclient.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo-foo-" + stunnelConfig,
+						Name: stunnelConfig + "-foo-foo",
 					},
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo-client-" + stunnelSecret,
+						Name: stunnelSecret + "-client-foo",
 					},
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo-server-" + stunnelSecret,
+						Name: stunnelSecret + "-server-foo",
 					},
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo-ca-bundle-" + stunnelSecret,
+						Name: stunnelSecret + "-ca-bundle-foo",
 					},
 				},
 			},
@@ -213,7 +213,7 @@ func Test_mrkForCleanup(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-client-stunnel-credentials",
+						Name:      "stunnel-credentials-client-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -221,7 +221,7 @@ func Test_mrkForCleanup(t *testing.T) {
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-ca-bundle-stunnel-credentials",
+						Name:      "stunnel-credentials-ca-bundle-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -229,7 +229,7 @@ func Test_mrkForCleanup(t *testing.T) {
 				},
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-foo-stunnel-config",
+						Name:      "stunnel-config-foo-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
@@ -239,17 +239,17 @@ func Test_mrkForCleanup(t *testing.T) {
 			verifyObjects: []ctrlclient.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo-foo-" + stunnelConfig,
+						Name: stunnelConfig + "-foo-foo",
 					},
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo-client-" + stunnelSecret,
+						Name: stunnelSecret + "-client-foo",
 					},
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo-ca-bundle-" + stunnelSecret,
+						Name: stunnelSecret + "-ca-bundle-foo",
 					},
 				},
 			},

@@ -36,8 +36,12 @@ func getImage(options *transport.Options) string {
 	}
 }
 
-func getResourceName(obj types.NamespacedName, component, suffix string) string {
-	return fmt.Sprintf("%s-%s-%s", obj.Name, component, suffix)
+func getResourceName(obj types.NamespacedName, component, prefix string) string {
+	resourceName := fmt.Sprintf("%s-%s-%s", prefix, component, obj.Name)
+	if len(resourceName) > 62 {
+		return resourceName[:62]
+	}
+	return resourceName
 }
 
 func isSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logger, key types.NamespacedName, component string) (bool, error) {

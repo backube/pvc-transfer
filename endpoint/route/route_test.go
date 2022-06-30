@@ -144,7 +144,7 @@ func TestNew(t *testing.T) {
 			AddToScheme(fakeClient.Scheme())
 			ctx := context.WithValue(context.Background(), "test", tt.name)
 			fakeLogger := logrtesting.TestLogger{t}
-			_, gotError := New(ctx, fakeClient, fakeLogger, tt.namespacedName, tt.eType, tt.labels, tt.ownerReferences)
+			endpoint, gotError := New(ctx, fakeClient, fakeLogger, tt.namespacedName, tt.eType, nil, tt.labels, tt.ownerReferences)
 			route := &routev1.Route{}
 			err := fakeClient.Get(context.Background(), tt.namespacedName, route)
 			if err != nil {
@@ -163,7 +163,7 @@ func TestNew(t *testing.T) {
 			if svc.Spec.Type != corev1.ServiceTypeClusterIP && !reflect.DeepEqual(svc.Spec.Selector, tt.labels) && svc.Spec.Ports[0].Port != TLSTerminationPassthroughPolicyPort {
 				t.Errorf("didnt get the expected service %#v", svc)
 			}
-
+			_, gotError = endpoint.IsHealthy(context.TODO(), fakeClient)
 			if (gotError != nil) != tt.wantErr {
 				t.Errorf("New() error = %v, wantErr %v", gotError, tt.wantErr)
 				return
