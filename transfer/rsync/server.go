@@ -247,7 +247,8 @@ func NewServerWithStunnelRoute(ctx context.Context, c ctrlclient.Client, logger 
 	e, err := route.New(ctx, c, logger, types.NamespacedName{
 		Namespace: namespace,
 		Name:      hm[namespace],
-	}, route.EndpointTypePassthrough, labels, ownerRefs)
+	}, route.EndpointTypePassthrough, nil,
+		labels, ownerRefs)
 	if err != nil {
 		return nil, err
 	}

@@ -44,7 +44,7 @@ func TestNewClient(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-client-stunnel-credentials",
+						Name:      "stunnel-credentials-client-foo",
 						Namespace: "bar",
 					},
 					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
@@ -60,7 +60,7 @@ func TestNewClient(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-client-stunnel-credentials",
+						Name:      "stunnel-credentials-client-foo",
 						Namespace: "bar",
 					},
 					Data: map[string][]byte{"tls.crt": []byte(`crt`)},
@@ -76,7 +76,7 @@ func TestNewClient(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-client-stunnel-config",
+						Name:      "stunnel-config-client-foo",
 						Namespace: "bar",
 					},
 					Data: map[string]string{"stunnel.conf": "foreground = yes"},
@@ -92,7 +92,7 @@ func TestNewClient(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo-client-stunnel-config",
+						Name:      "stunnel-config-foo-client",
 						Namespace: "bar",
 					},
 					Data: map[string]string{"stunnel.conf": "foreground = no"},
@@ -113,7 +113,7 @@ func TestNewClient(t *testing.T) {
 			cm := &corev1.ConfigMap{}
 			err = fakeClient.Get(context.Background(), types.NamespacedName{
 				Namespace: "bar",
-				Name:      "foo-client-" + stunnelConfig,
+				Name:      stunnelConfig + "-client-foo",
 			}, cm)
 			if err != nil {
 				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
@@ -130,7 +130,7 @@ func TestNewClient(t *testing.T) {
 			secret := &corev1.Secret{}
 			err = fakeClient.Get(context.Background(), types.NamespacedName{
 				Namespace: "bar",
-				Name:      "foo-client-" + stunnelSecret,
+				Name:      stunnelSecret + "-client-foo",
 			}, secret)
 			if err != nil {
 				panic(fmt.Errorf("%#v should not be getting error from fake client", err))

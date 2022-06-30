@@ -127,7 +127,10 @@ func (s *server) Type() transport.Type {
 }
 
 func (s *server) Credentials() types.NamespacedName {
-	return types.NamespacedName{Name: s.prefixedName(stunnelSecret), Namespace: s.NamespacedName().Namespace}
+	return types.NamespacedName{
+		Name:      getResourceName(s.namespacedName, "server", stunnelSecret),
+		Namespace: s.NamespacedName().Namespace,
+	}
 }
 
 func (s *server) Hostname() string {
@@ -177,10 +180,6 @@ func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error
 	return err
 }
 
-func (s *server) prefixedName(name string) string {
-	return s.namespacedName.Name + "-server-" + name
-}
-
 func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error {
 	secretValid, err := isSecretValid(ctx, c, s.logger, s.namespacedName, "server")
 	if err != nil {
@@ -219,7 +218,7 @@ func (s *server) serverContainers() []corev1.Container {
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{
-					Name:      s.prefixedName(stunnelConfig),
+					Name:      getResourceName(s.namespacedName, "server", stunnelConfig),
 					MountPath: "/etc/stunnel/stunnel.conf",
 					SubPath:   "stunnel.conf",
 				},
@@ -235,11 +234,11 @@ func (s *server) serverContainers() []corev1.Container {
 func (s *server) serverVolumes() []corev1.Volume {
 	return []corev1.Volume{
 		{
-			Name: s.prefixedName(stunnelConfig),
+			Name: getResourceName(s.namespacedName, "server", stunnelConfig),
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: s.prefixedName(stunnelConfig),
+						Name: getResourceName(s.namespacedName, "server", stunnelConfig),
 					},
 				},
 			},
