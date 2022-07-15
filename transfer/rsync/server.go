@@ -275,12 +275,6 @@ func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	labels map[string]string,
 	ownerRefs []metav1.OwnerReference,
 	password string, podOptions transfer.PodOptions) (transfer.Server, error) {
-
-	// TODO: add proper validation for podOptions
-	if podOptions.ContainerSecurityContext.RunAsUser != nil && *podOptions.ContainerSecurityContext.RunAsUser != 0 {
-		return nil, fmt.Errorf("running as non-root user is not supported yet")
-	}
-
 	r := &server{
 		username:        "root",
 		password:        password,

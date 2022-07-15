@@ -210,7 +210,6 @@ func (s StandardProgress) ApplyTo(opts *CommandOptions) error {
 		"COPY2", "DEL2", "REMOVE2", "SKIP2", "FLIST2", "PROGRESS2", "STATS2",
 	}
 	opts.HumanReadable = true
-	opts.LogFile = logFileStdOut
 	return nil
 }
 
