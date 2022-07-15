@@ -347,8 +347,35 @@ func (tc *client) getCommand(rsyncOptions []string, pvc transfer.PVC) []string {
 			tc.username,
 			tc.Transport().Hostname(),
 			pvc.LabelSafeName(), tc.Transport().ListenPort()))
-	rsyncCommandBashScript := fmt.Sprintf(
-		"trap \"touch %s/rsync-client-container-done\" EXIT SIGINT SIGTERM; timeout=120; SECONDS=0; while [ $SECONDS -lt $timeout ]; do nc -z localhost %d; rc=$?; if [ $rc -eq 0 ]; then %s; rc=$?; break; fi; done; exit $rc;",
+	rsyncCommandBashScript := fmt.Sprintf(`trap "touch %s/rsync-client-container-done" EXIT SIGINT SIGTERM;
+timeout=120;
+SECONDS=0;
+while [ $SECONDS -lt $timeout ]
+do 
+	nc -z localhost %d
+	rc=$?
+	if [ $rc -eq 0 ]
+	then 
+		MAX_RETRIES=5
+		RETRY=0
+		DELAY=2
+		FACTOR=2
+		rc=1
+		while [[ ${rc} -ne 0 && ${RETRY} -lt ${MAX_RETRIES} ]]
+		do 
+			RETRY=$((RETRY+1))
+			%s
+			rc=$?
+			if [[ ${rc} -ne 0 ]]; then
+				echo "Syncronization failed. Retrying in ${DELAY} seconds. Retry ${RETRY}/${MAX_RETRIES}."
+				sleep ${DELAY}
+				DELAY=$((DELAY * FACTOR ))
+			fi
+		done 
+		break
+	fi
+done
+exit $rc`,
 		rsyncCommunicationMountPath,
 		tc.Transport().ListenPort(),
 		strings.Join(rsyncCommand, " "))
