@@ -495,8 +495,7 @@ done`
 
 	return []corev1.Container{
 		{
-			Name:  RsyncContainer,
-			Image: rsyncImage,
+			Name: RsyncContainer,
 			Command: []string{
 				"/bin/bash",
 				"-c",
