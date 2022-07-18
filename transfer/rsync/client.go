@@ -248,7 +248,6 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 		containers := []corev1.Container{
 			{
 				Name:    RsyncContainer,
-				Image:   rsyncImage,
 				Command: rsyncContainerCommand,
 				Env: []corev1.EnvVar{
 					{

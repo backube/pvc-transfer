@@ -37,6 +37,11 @@ func applyPodOptions(podSpec *corev1.PodSpec, options transfer.PodOptions) {
 	podSpec.SecurityContext = &options.PodSecurityContext
 	for i := range podSpec.Containers {
 		c := &podSpec.Containers[i]
+		if options.Image != "" {
+			c.Image = options.Image
+		} else {
+			c.Image = rsyncImage
+		}
 		c.SecurityContext = &options.ContainerSecurityContext
 		c.Resources = options.Resources
 	}

@@ -68,6 +68,8 @@ type PodOptions struct {
 	// it is good to provision destination transfer pod with same or larger resources than the source
 	// so that the network is not congested.
 	Resources corev1.ResourceRequirements
+	// Image allows specifying an alternate image for transfers
+	Image string
 	// CommandOptions allow configuring the additional options that are passed to entrypoint commands
 	// of transfer containers.
 	CommandOptions
