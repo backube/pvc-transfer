@@ -483,7 +483,10 @@ func (s *server) getPVCVolumeMounts(namespace string) []corev1.VolumeMount {
 }
 
 func (s *server) getContainers(volumeMounts []corev1.VolumeMount) []corev1.Container {
-	rsyncCommandTemplate := `touch ` + rsyncdLogDirPath + `rsync.log; /usr/bin/rsync --daemon --no-detach --port=` + strconv.Itoa(int(s.ListenPort())) + ` -vvv | tee ` + rsyncdLogDirPath + `rsync.log &
+	rsyncCommandTemplate := `touch ` + rsyncdLogDirPath + `rsync.log; /usr/bin/rsync --daemon --no-detach --port=` + strconv.Itoa(int(s.ListenPort())) + ` -vvv`
+
+	if s.options.TerminateOnCompletion != nil && *s.options.TerminateOnCompletion {
+		terminationScript := ` | tee ` + rsyncdLogDirPath + `rsync.log &
 while true; do
 	grep "_exit_cleanup" ` + rsyncdLogDirPath + `rsync.log >> /dev/null
 	if [[ $? -eq 0 ]]
@@ -492,6 +495,8 @@ while true; do
 	fi
 	sleep 1;
 done`
+		rsyncCommandTemplate = fmt.Sprintf("%s%s", rsyncCommandTemplate, terminationScript)
+	}
 
 	return []corev1.Container{
 		{

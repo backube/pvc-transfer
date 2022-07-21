@@ -70,6 +70,8 @@ type PodOptions struct {
 	Resources corev1.ResourceRequirements
 	// Image allows specifying an alternate image for transfers
 	Image string
+	// TerminateOnCompletion determines whether transfer containers will terminate after transfer is complete
+	TerminateOnCompletion *bool
 	// CommandOptions allow configuring the additional options that are passed to entrypoint commands
 	// of transfer containers.
 	CommandOptions
