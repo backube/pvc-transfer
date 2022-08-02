@@ -15,14 +15,12 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	errorsutil "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/utils/pointer"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 type client struct {
 	username        string
-	password        string
 	pvcList         transfer.PVCList
 	transportClient transport.Transport
 	endpoint        endpoint.Endpoint
@@ -141,19 +139,8 @@ func (tc *client) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, 
 			Namespace: tc.namespace,
 		},
 	}
-	err = utils.UpdateWithLabel(ctx, c, roleBinding, key, value)
-	if err != nil {
-		return err
-	}
 
-	// update secret
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", rsyncPassword, tc.nameSuffix),
-			Namespace: tc.namespace,
-		},
-	}
-	return utils.UpdateWithLabel(ctx, c, secret, key, value)
+	return utils.UpdateWithLabel(ctx, c, roleBinding, key, value)
 }
 
 // NewClient takes PVCList, transport and endpoint object and creates all
@@ -171,18 +158,15 @@ func (tc *client) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, 
 func NewClient(ctx context.Context, c ctrlclient.Client,
 	pvcList transfer.PVCList,
 	t transport.Transport,
-	e endpoint.Endpoint,
 	logger logr.Logger,
 	nameSuffix string,
 	labels map[string]string,
 	ownerRefs []metav1.OwnerReference,
-	password string, podOptions transfer.PodOptions) (transfer.Client, error) {
+	podOptions transfer.PodOptions) (transfer.Client, error) {
 	tc := &client{
 		username:        "root",
-		password:        password,
 		pvcList:         pvcList,
 		transportClient: t,
-		endpoint:        e,
 		nameSuffix:      nameSuffix,
 		labels:          labels,
 		ownerRefs:       ownerRefs,
@@ -209,7 +193,6 @@ func NewClient(ctx context.Context, c ctrlclient.Client,
 
 	tc.nameSuffix = transfer.NamespaceHashForNames(pvcList)[namespace][:10]
 	reconcilers := []reconcileFunc{
-		tc.reconcilePassword,
 		tc.reconcilePod,
 	}
 
@@ -249,21 +232,6 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 			{
 				Name:    RsyncContainer,
 				Command: rsyncContainerCommand,
-				Env: []corev1.EnvVar{
-					{
-						Name: rsyncPasswordKey,
-						ValueFrom: &corev1.EnvVarSource{
-							SecretKeyRef: &corev1.SecretKeySelector{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: tc.getPasswordSecretName(),
-								},
-								Key:      rsyncPasswordKey,
-								Optional: pointer.Bool(true),
-							},
-						},
-					},
-				},
-
 				VolumeMounts: []corev1.VolumeMount{
 					{
 						Name:      "mnt",
@@ -322,7 +290,12 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 			// adding pvc name in annotation to avoid constraints on labels in naming
 			pod.Annotations = map[string]string{"pvc": pvc.Claim().Name}
 			pod.OwnerReferences = tc.ownerRefs
-			pod.Spec = podSpec
+			if pod.CreationTimestamp.IsZero() {
+				pod.Spec.Containers = podSpec.Containers
+				pod.Spec.Volumes = podSpec.Volumes
+				pod.Spec.RestartPolicy = podSpec.RestartPolicy
+				pod.Spec.ServiceAccountName = podSpec.ServiceAccountName
+			}
 			return nil
 		})
 		errs = append(errs, err)
@@ -349,6 +322,7 @@ func (tc *client) getCommand(rsyncOptions []string, pvc transfer.PVC) []string {
 	rsyncCommandBashScript := fmt.Sprintf(`trap "touch %s/rsync-client-container-done" EXIT SIGINT SIGTERM;
 timeout=120;
 SECONDS=0;
+START_TIME=$SECONDS
 while [ $SECONDS -lt $timeout ]
 do 
 	nc -z localhost %d
@@ -367,13 +341,16 @@ do
 			rc=$?
 			if [[ ${rc} -ne 0 ]]; then
 				echo "Syncronization failed. Retrying in ${DELAY} seconds. Retry ${RETRY}/${MAX_RETRIES}."
-				sleep ${DELAY}
-				DELAY=$((DELAY * FACTOR ))
+				if [[ ${RETRY} -lt ${MAX_RETRIES} ]]; then
+					sleep ${DELAY}
+					DELAY=$((DELAY * FACTOR ))
+				fi
 			fi
 		done 
 		break
 	fi
 done
+echo "Rsync completed in $(( SECONDS - START_TIME ))s"
 exit $rc`,
 		rsyncCommunicationMountPath,
 		tc.Transport().ListenPort(),
@@ -421,26 +398,4 @@ exit 0`, rsyncCommunicationMountPath),
 			})
 	}
 	return nil
-}
-
-func (tc *client) reconcilePassword(ctx context.Context, c ctrlclient.Client, namespace string) error {
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      tc.getPasswordSecretName(),
-			Namespace: namespace,
-		},
-	}
-	_, err := ctrlutil.CreateOrUpdate(ctx, c, secret, func() error {
-		secret.OwnerReferences = tc.ownerRefs
-		secret.Labels = tc.labels
-		secret.Data = map[string][]byte{
-			rsyncPasswordKey: []byte(tc.password),
-		}
-		return nil
-	})
-	return err
-}
-
-func (tc *client) getPasswordSecretName() string {
-	return fmt.Sprintf("%s-%s", rsyncPassword, tc.nameSuffix)
 }

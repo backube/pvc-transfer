@@ -165,7 +165,6 @@ func Test_server_reconcileConfigMap(t *testing.T) {
 			s := &server{
 				logger:          logrtesting.TestLogger{t},
 				nameSuffix:      tt.nameSuffix,
-				username:        tt.username,
 				pvcList:         tt.pvcList,
 				labels:          tt.labels,
 				ownerRefs:       tt.ownerRefs,
@@ -198,118 +197,6 @@ func Test_server_reconcileConfigMap(t *testing.T) {
 
 			if !reflect.DeepEqual(cm.OwnerReferences, tt.ownerRefs) {
 				t.Error("configmap does not have the right owner references")
-			}
-		})
-	}
-}
-
-func Test_server_reconcileSecret(t *testing.T) {
-	tests := []struct {
-		name       string
-		username   string
-		password   string
-		labels     map[string]string
-		ownerRefs  []metav1.OwnerReference
-		namespace  string
-		wantErr    bool
-		nameSuffix string
-		objects    []ctrlclient.Object
-	}{
-		{
-			name:       "test if password is empty",
-			username:   "root",
-			password:   "",
-			labels:     map[string]string{"test": "me"},
-			ownerRefs:  testOwnerReferences(),
-			wantErr:    true,
-			nameSuffix: "foo",
-			objects:    []ctrlclient.Object{},
-		},
-		{
-			name:       "secret with invalid data",
-			username:   "root",
-			password:   "root",
-			labels:     map[string]string{"test": "me"},
-			ownerRefs:  testOwnerReferences(),
-			wantErr:    false,
-			nameSuffix: "foo",
-			objects: []ctrlclient.Object{
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            "backube-rsync-foo",
-						Namespace:       "foo",
-						Labels:          map[string]string{"foo": "bar"},
-						OwnerReferences: []metav1.OwnerReference{},
-					},
-				},
-			},
-		},
-		{
-			name:       "secret with valid data",
-			username:   "root",
-			password:   "root",
-			labels:     map[string]string{"test": "me"},
-			ownerRefs:  testOwnerReferences(),
-			wantErr:    false,
-			nameSuffix: "foo",
-			objects: []ctrlclient.Object{
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            "backube-rsync-foo",
-						Namespace:       "foo",
-						Labels:          map[string]string{"test": "me"},
-						OwnerReferences: testOwnerReferences(),
-					},
-					Data: map[string][]byte{
-						"credentials": []byte("root:root"),
-					},
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		fakeClient := fakeClientWithObjects(tt.objects...)
-		ctx := context.WithValue(context.Background(), "test", tt.name)
-
-		t.Run(tt.name, func(t *testing.T) {
-			s := &server{
-				logger:     logrtesting.TestLogger{t},
-				username:   tt.username,
-				password:   tt.password,
-				labels:     tt.labels,
-				ownerRefs:  tt.ownerRefs,
-				nameSuffix: tt.nameSuffix,
-			}
-			err := s.reconcileSecret(ctx, fakeClient, tt.namespace)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("reconcilePassword() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				return
-			}
-			secret := &corev1.Secret{}
-			err = fakeClient.Get(context.Background(), types.NamespacedName{
-				Namespace: tt.namespace,
-				Name:      rsyncSecretPrefix + "-" + tt.nameSuffix,
-			}, secret)
-			if err != nil {
-				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
-			}
-
-			secretData, ok := secret.Data["credentials"]
-			if !ok {
-				t.Error("unable to find credentials in secret")
-			}
-			if !strings.Contains(string(secretData), tt.username+":"+tt.password) {
-				t.Error("secrets does not contain the right data")
-			}
-
-			if !reflect.DeepEqual(secret.Labels, tt.labels) {
-				t.Error("secret does not have the right labels")
-			}
-
-			if !reflect.DeepEqual(secret.OwnerReferences, tt.ownerRefs) {
-				t.Error("secret does not have the right owner references")
 			}
 		})
 	}
@@ -405,7 +292,6 @@ func Test_server_reconcilePod(t *testing.T) {
 			ctx := context.WithValue(context.Background(), "test", tt.name)
 			s := &server{
 				logger:          logrtesting.TestLogger{t},
-				username:        tt.username,
 				pvcList:         tt.pvcList,
 				transportServer: tt.transportServer,
 				listenPort:      tt.listenPort,

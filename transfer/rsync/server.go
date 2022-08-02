@@ -53,7 +53,6 @@ read only = no
 list = yes
 log file = /dev/stdout
 max verbosity = 4
-auth users = {{ $.Username }}
 {{- if $.AllowLocalhostOnly }}
 hosts allow = ::1, 127.0.0.1, localhost
 {{- else }}
@@ -68,14 +67,12 @@ hosts allow = *.*.*.*, *
     munge symlinks = no
     list = yes
     read only = false
-    auth users = {{ $.Username }}
     secrets file = /etc/rsync-secret/rsyncd.secrets
 {{ end }}
 `
 )
 
 type rsyncConfigData struct {
-	Username           string
 	PVCList            transfer.PVCList
 	AllowLocalhostOnly bool
 }
@@ -83,8 +80,6 @@ type rsyncConfigData struct {
 type reconcileFunc func(ctx context.Context, c ctrlclient.Client, namespace string) error
 
 type server struct {
-	username        string
-	password        string
 	pvcList         transfer.PVCList
 	transportServer transport.Transport
 	endpoint        endpoint.Endpoint
@@ -226,7 +221,7 @@ func NewServerWithStunnelRoute(ctx context.Context, c ctrlclient.Client, logger 
 	pvcList transfer.PVCList,
 	labels map[string]string,
 	ownerRefs []metav1.OwnerReference,
-	password string, podOptions transfer.PodOptions) (transfer.Server, error) {
+	podOptions transfer.PodOptions) (transfer.Server, error) {
 
 	var namespace string
 	namespaces := pvcList.Namespaces()
@@ -258,7 +253,7 @@ func NewServerWithStunnelRoute(ctx context.Context, c ctrlclient.Client, logger 
 		return nil, err
 	}
 
-	return NewServer(ctx, c, logger, pvcList, t, e, labels, ownerRefs, password, podOptions)
+	return NewServer(ctx, c, logger, pvcList, t, e, labels, ownerRefs, podOptions)
 }
 
 // NewServer takes PVCList, transport and endpoint object and all
@@ -274,10 +269,8 @@ func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 	e endpoint.Endpoint,
 	labels map[string]string,
 	ownerRefs []metav1.OwnerReference,
-	password string, podOptions transfer.PodOptions) (transfer.Server, error) {
+	podOptions transfer.PodOptions) (transfer.Server, error) {
 	r := &server{
-		username:        "root",
-		password:        password,
 		pvcList:         pvcList,
 		transportServer: t,
 		endpoint:        e,
@@ -308,7 +301,6 @@ func NewServer(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 
 	reconcilers := []reconcileFunc{
 		r.reconcileConfigMap,
-		r.reconcileSecret,
 		r.reconcilePod,
 	}
 
@@ -333,7 +325,6 @@ func (s *server) reconcileConfigMap(ctx context.Context, c ctrlclient.Client, na
 
 	allowLocalhostOnly := s.Transport().Type() == stunnel.TransportTypeStunnel
 	configdata := rsyncConfigData{
-		Username:           s.username,
 		PVCList:            s.pvcList.InNamespace(namespace),
 		AllowLocalhostOnly: allowLocalhostOnly,
 	}
@@ -359,32 +350,6 @@ func (s *server) reconcileConfigMap(ctx context.Context, c ctrlclient.Client, na
 		}
 		return nil
 	})
-	return err
-}
-
-func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client, namespace string) error {
-	if s.password == "" {
-		e := fmt.Errorf("password is empty")
-		s.logger.Error(e, "unable to find password for rsyncServer")
-		return e
-	}
-
-	rsyncSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: namespace,
-			Name:      fmt.Sprintf("%s-%s", rsyncSecretPrefix, s.nameSuffix),
-		},
-	}
-
-	_, err := ctrlutil.CreateOrUpdate(ctx, c, rsyncSecret, func() error {
-		rsyncSecret.Labels = s.labels
-		rsyncSecret.OwnerReferences = s.ownerRefs
-		rsyncSecret.Data = map[string][]byte{
-			"credentials": []byte(s.username + ":" + s.password),
-		}
-		return nil
-	})
-
 	return err
 }
 
@@ -427,7 +392,12 @@ func (s *server) reconcilePod(ctx context.Context, c ctrlclient.Client, namespac
 	_, err := ctrlutil.CreateOrUpdate(ctx, c, server, func() error {
 		server.Labels = s.labels
 		server.OwnerReferences = s.ownerRefs
-		server.Spec = podSpec
+		if server.CreationTimestamp.IsZero() {
+			server.Spec.Containers = podSpec.Containers
+			server.Spec.ServiceAccountName = podSpec.ServiceAccountName
+			server.Spec.RestartPolicy = corev1.RestartPolicyNever
+			server.Spec.Volumes = podSpec.Volumes
+		}
 		return nil
 	})
 	return err
@@ -441,21 +411,6 @@ func (s *server) getConfigVolumes(mode int32) []corev1.Volume {
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: fmt.Sprintf("%s-%s", rsyncConfig, s.nameSuffix),
-					},
-				},
-			},
-		},
-		{
-			Name: fmt.Sprintf("%s-%s", rsyncSecretPrefix, s.nameSuffix),
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName:  fmt.Sprintf("%s-%s", rsyncSecretPrefix, s.nameSuffix),
-					DefaultMode: &mode,
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "credentials",
-							Path: "rsyncd.secrets",
-						},
 					},
 				},
 			},
@@ -542,10 +497,6 @@ func (s *server) getConfigVolumeMounts() []corev1.VolumeMount {
 			Name:      fmt.Sprintf("%s-%s", rsyncConfig, s.nameSuffix),
 			MountPath: "/etc/rsyncd.conf",
 			SubPath:   "rsyncd.conf",
-		},
-		{
-			Name:      fmt.Sprintf("%s-%s", rsyncSecretPrefix, s.nameSuffix),
-			MountPath: "/etc/rsync-secret",
 		},
 		{
 			Name:      rsyncdLogDir,
