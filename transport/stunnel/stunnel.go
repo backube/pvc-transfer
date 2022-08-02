@@ -20,7 +20,7 @@ import (
 const (
 	defaultStunnelImage = "quay.io/konveyor/rsync-transfer:latest"
 	stunnelConfig       = "stunnel-config"
-	stunnelSecret       = "stunnel-credentials"
+	stunnelSecret       = "stunnel-creds"
 )
 
 const (
@@ -57,18 +57,36 @@ func isSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 		return false, err
 	}
 
-	_, ok := secret.Data["tls.key"]
+	_, ok := secret.Data["client.key"]
 	if !ok {
-		logger.Info("secret data missing key tls.key", "secret", types.NamespacedName{
+		logger.Info("secret data missing key client.key", "secret", types.NamespacedName{
 			Namespace: key.Namespace,
 			Name:      getResourceName(key, component, stunnelSecret),
 		})
 		return false, nil
 	}
 
-	crt, ok := secret.Data["tls.crt"]
+	_, ok = secret.Data["server.key"]
 	if !ok {
-		logger.Info("secret data missing key tls.crt", "secret", types.NamespacedName{
+		logger.Info("secret data missing key server.key", "secret", types.NamespacedName{
+			Namespace: key.Namespace,
+			Name:      getResourceName(key, component, stunnelSecret),
+		})
+		return false, nil
+	}
+
+	clientCrt, ok := secret.Data["client.crt"]
+	if !ok {
+		logger.Info("secret data missing key client.crt", "secret", types.NamespacedName{
+			Namespace: key.Namespace,
+			Name:      getResourceName(key, component, stunnelSecret),
+		})
+		return false, nil
+	}
+
+	serverCrt, ok := secret.Data["server.crt"]
+	if !ok {
+		logger.Info("secret data missing key server.crt", "secret", types.NamespacedName{
 			Namespace: key.Namespace,
 			Name:      getResourceName(key, component, stunnelSecret),
 		})
@@ -84,7 +102,12 @@ func isSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logger,
 		return false, nil
 	}
 
-	return certs.VerifyCertificate(bytes.NewBuffer(ca), bytes.NewBuffer(crt))
+	verified, err := certs.VerifyCertificate(bytes.NewBuffer(ca), bytes.NewBuffer(clientCrt))
+	if err != nil {
+		return verified, err
+	}
+
+	return certs.VerifyCertificate(bytes.NewBuffer(ca), bytes.NewBuffer(serverCrt))
 }
 
 func reconcileCertificateSecrets(ctx context.Context,
@@ -94,7 +117,7 @@ func reconcileCertificateSecrets(ctx context.Context,
 	crtBundle *certs.CertificateBundle) error {
 	crtBundleSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(key, "ca-bundle", stunnelSecret),
+			Name:      getResourceName(key, "certs", stunnelSecret),
 			Namespace: key.Namespace,
 		},
 	}
@@ -116,44 +139,6 @@ func reconcileCertificateSecrets(ctx context.Context,
 		return err
 	}
 
-	serverSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(key, "server", stunnelSecret),
-			Namespace: key.Namespace,
-		},
-	}
-	_, err = controllerutil.CreateOrUpdate(ctx, c, serverSecret, func() error {
-		serverSecret.Labels = options.Labels
-		serverSecret.OwnerReferences = options.Owners
-
-		serverSecret.Data = map[string][]byte{
-			"tls.crt": crtBundle.ServerCrt.Bytes(),
-			"tls.key": crtBundle.ServerKey.Bytes(),
-			"ca.crt":  crtBundle.CACrt.Bytes(),
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	clientSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(key, "client", stunnelSecret),
-			Namespace: key.Namespace,
-		},
-	}
-	_, err = controllerutil.CreateOrUpdate(ctx, c, clientSecret, func() error {
-		clientSecret.Labels = options.Labels
-		clientSecret.OwnerReferences = options.Owners
-
-		clientSecret.Data = map[string][]byte{
-			"tls.crt": crtBundle.ClientCrt.Bytes(),
-			"tls.key": crtBundle.ClientKey.Bytes(),
-			"ca.crt":  crtBundle.CACrt.Bytes(),
-		}
-		return nil
-	})
 	return err
 }
 
@@ -171,7 +156,7 @@ func markForCleanup(ctx context.Context, c ctrlclient.Client, objKey types.Names
 
 	clientSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(objKey, "client", stunnelSecret),
+			Name:      getResourceName(objKey, "certs", stunnelSecret),
 			Namespace: objKey.Namespace,
 		},
 	}
@@ -183,31 +168,5 @@ func markForCleanup(ctx context.Context, c ctrlclient.Client, objKey types.Names
 		return err
 	}
 
-	serverSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(objKey, "server", stunnelSecret),
-			Namespace: objKey.Namespace,
-		},
-	}
-	err = utils.UpdateWithLabel(ctx, c, serverSecret, key, value)
-	switch {
-	case k8serrors.IsNotFound(err):
-		break
-	case err != nil:
-		return err
-	}
-	crtBundleSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      getResourceName(objKey, "ca-bundle", stunnelSecret),
-			Namespace: objKey.Namespace,
-		},
-	}
-	err = utils.UpdateWithLabel(ctx, c, crtBundleSecret, key, value)
-	switch {
-	case k8serrors.IsNotFound(err):
-		break
-	case err != nil:
-		return err
-	}
 	return nil
 }

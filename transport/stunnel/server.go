@@ -29,11 +29,12 @@ socket = l:TCP_NODELAY=1
 socket = r:TCP_NODELAY=1
 debug = 7
 sslVersion = TLSv1.3
+
 [transfer]
 accept = {{ $.acceptPort }}
 connect = {{ $.connectPort }}
-key = /etc/stunnel/certs/tls.key
-cert = /etc/stunnel/certs/tls.crt
+key = /etc/stunnel/certs/server.key
+cert = /etc/stunnel/certs/server.crt
 CAfile = /etc/stunnel/certs/ca.crt
 verify = 2
 TIMEOUTclose = 0
@@ -128,7 +129,7 @@ func (s *server) Type() transport.Type {
 
 func (s *server) Credentials() types.NamespacedName {
 	return types.NamespacedName{
-		Name:      getResourceName(s.namespacedName, "server", stunnelSecret),
+		Name:      getResourceName(s.namespacedName, "certs", stunnelSecret),
 		Namespace: s.NamespacedName().Namespace,
 	}
 }
@@ -181,7 +182,7 @@ func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error
 }
 
 func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error {
-	secretValid, err := isSecretValid(ctx, c, s.logger, s.namespacedName, "server")
+	secretValid, err := isSecretValid(ctx, c, s.logger, s.namespacedName, "certs")
 	if err != nil {
 		s.logger.Error(err, "error getting existing ssl certs from secret")
 		return err
@@ -223,7 +224,7 @@ func (s *server) serverContainers() []corev1.Container {
 					SubPath:   "stunnel.conf",
 				},
 				{
-					Name:      getResourceName(s.namespacedName, "server", stunnelSecret),
+					Name:      getResourceName(s.namespacedName, "certs", stunnelSecret),
 					MountPath: "/etc/stunnel/certs",
 				},
 			},
@@ -244,18 +245,18 @@ func (s *server) serverVolumes() []corev1.Volume {
 			},
 		},
 		{
-			Name: getResourceName(s.namespacedName, "server", stunnelSecret),
+			Name: getResourceName(s.namespacedName, "certs", stunnelSecret),
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName: getResourceName(s.namespacedName, "server", stunnelSecret),
+					SecretName: getResourceName(s.namespacedName, "certs", stunnelSecret),
 					Items: []corev1.KeyToPath{
 						{
-							Key:  "tls.crt",
-							Path: "tls.crt",
+							Key:  "server.crt",
+							Path: "server.crt",
 						},
 						{
-							Key:  "tls.key",
-							Path: "tls.key",
+							Key:  "server.key",
+							Path: "server.key",
 						},
 						{
 							Key:  "ca.crt",
