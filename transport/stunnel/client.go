@@ -20,30 +20,31 @@ const clientListenPort = 6443
 
 const (
 	stunnelClientConfTemplate = `
- pid =
- sslVersion = TLSv1.3
- client = yes
- syslog = no
- output = /dev/stdout
- [transfer]
- debug = 7
- accept = {{ .listenPort }}
- cert = /etc/stunnel/certs/tls.crt
- key = /etc/stunnel/certs/tls.key
- CAfile = /etc/stunnel/certs/ca.crt
- verify = 2
+pid =
+sslVersion = TLSv1.3
+client = yes
+syslog = no
+output = /dev/stdout
+
+[transfer]
+debug = 7
+accept = {{ .listenPort }}
+cert = /etc/stunnel/certs/client.crt
+key = /etc/stunnel/certs/client.key
+CAfile = /etc/stunnel/certs/ca.crt
+verify = 2
 {{- if not (eq .proxyHost "") }}
- protocol = connect
- connect = {{ .proxyHost }}
- protocolHost = {{ .hostname }}:{{ .listenPort }}
+protocol = connect
+connect = {{ .proxyHost }}
+protocolHost = {{ .hostname }}:{{ .listenPort }}
 {{- if not (eq .proxyUsername "") }}
- protocolUsername = {{ .proxyUsername }}
+protocolUsername = {{ .proxyUsername }}
 {{- end }}
 {{- if not (eq .proxyPassword "") }}
- protocolPassword = {{ .proxyPassword }}
+protocolPassword = {{ .proxyPassword }}
 {{- end }}
 {{- else }}
- connect = {{ .hostname }}:{{ .connectPort }}
+connect = {{ .hostname }}:{{ .connectPort }}
 {{- end }}
 `
 )
@@ -180,7 +181,7 @@ func (sc *client) reconcileConfig(ctx context.Context, c ctrlclient.Client) erro
 }
 
 func (sc *client) reconcileSecret(ctx context.Context, c ctrlclient.Client) error {
-	valid, err := isSecretValid(ctx, c, sc.logger, sc.namespacedName, "client")
+	valid, err := isSecretValid(ctx, c, sc.logger, sc.namespacedName, "certs")
 	if err != nil {
 		sc.logger.Error(err, "error getting existing ssl certs from secret")
 		return err
@@ -221,7 +222,7 @@ func (sc *client) clientContainers(listenPort int32) []corev1.Container {
 					SubPath:   "stunnel.conf",
 				},
 				{
-					Name:      getResourceName(sc.namespacedName, "client", stunnelSecret),
+					Name:      getResourceName(sc.namespacedName, "certs", stunnelSecret),
 					MountPath: "/etc/stunnel/certs",
 				},
 			},
@@ -242,18 +243,18 @@ func (sc *client) clientVolumes() []corev1.Volume {
 			},
 		},
 		{
-			Name: getResourceName(sc.namespacedName, "client", stunnelSecret),
+			Name: getResourceName(sc.namespacedName, "certs", stunnelSecret),
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName: getResourceName(sc.namespacedName, "client", stunnelSecret),
+					SecretName: getResourceName(sc.namespacedName, "certs", stunnelSecret),
 					Items: []corev1.KeyToPath{
 						{
-							Key:  "tls.crt",
-							Path: "tls.crt",
+							Key:  "client.crt",
+							Path: "client.crt",
 						},
 						{
-							Key:  "tls.key",
-							Path: "tls.key",
+							Key:  "client.key",
+							Path: "client.key",
 						},
 						{
 							Key:  "ca.crt",

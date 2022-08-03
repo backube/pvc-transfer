@@ -43,11 +43,11 @@ func Test_getExistingCert(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-foo",
+						Name:      "stunnel-creds-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
-					Data: map[string][]byte{"tls.crt": certificateBundle.ServerCrt.Bytes()},
+					Data: map[string][]byte{"server.crt": certificateBundle.ServerCrt.Bytes()},
 				},
 			},
 		},
@@ -60,11 +60,11 @@ func Test_getExistingCert(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-foo",
+						Name:      "stunnel-creds-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
-					Data: map[string][]byte{"tls.key": certificateBundle.ServerKey.Bytes()},
+					Data: map[string][]byte{"server.key": certificateBundle.ServerKey.Bytes()},
 				},
 			},
 		},
@@ -77,11 +77,11 @@ func Test_getExistingCert(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-foo",
+						Name:      "stunnel-creds-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
-					Data: map[string][]byte{"tls.key": certificateBundle.ServerKey.Bytes(), "tls.crt": certificateBundle.ServerKey.Bytes()},
+					Data: map[string][]byte{"server.key": certificateBundle.ServerKey.Bytes(), "server.crt": certificateBundle.ServerKey.Bytes()},
 				},
 			},
 		},
@@ -94,11 +94,14 @@ func Test_getExistingCert(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-foo-foo",
+						Name:      "stunnel-creds-foo-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
-					Data: map[string][]byte{"tls.key": certificateBundle.ServerKey.Bytes(), "tls.crt": certificateBundle.ServerCrt.Bytes(), "ca.crt": certificateBundle.CACrt.Bytes()},
+					Data: map[string][]byte{
+						"server.key": certificateBundle.ServerKey.Bytes(), "server.crt": certificateBundle.ServerCrt.Bytes(),
+						"client.key": certificateBundle.ClientKey.Bytes(), "client.crt": certificateBundle.ClientCrt.Bytes(),
+						"ca.crt": certificateBundle.CACrt.Bytes()},
 				},
 			},
 		},
@@ -149,27 +152,15 @@ func Test_mrkForCleanup(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-server-foo",
+						Name:      "stunnel-creds-certs-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
-					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-client-foo",
-						Namespace: "bar",
-						Labels:    map[string]string{"test": "me"},
+					Data: map[string][]byte{
+						"server.key": []byte(`key`), "server.crt": []byte(`crt`),
+						"client.key": []byte(`key`), "client.crt": []byte(`crt`),
+						"ca.key": []byte(`key`), "ca.crt": []byte(`crt`),
 					},
-					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-ca-bundle-foo",
-						Namespace: "bar",
-						Labels:    map[string]string{"test": "me"},
-					},
-					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
 				},
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
@@ -188,17 +179,7 @@ func Test_mrkForCleanup(t *testing.T) {
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: stunnelSecret + "-client-foo",
-					},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: stunnelSecret + "-server-foo",
-					},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: stunnelSecret + "-ca-bundle-foo",
+						Name: stunnelSecret + "-certs-foo",
 					},
 				},
 			},
@@ -213,19 +194,14 @@ func Test_mrkForCleanup(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-client-foo",
+						Name:      "stunnel-creds-certs-foo",
 						Namespace: "bar",
 						Labels:    map[string]string{"test": "me"},
 					},
-					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-ca-bundle-foo",
-						Namespace: "bar",
-						Labels:    map[string]string{"test": "me"},
+					Data: map[string][]byte{
+						"client.key": []byte(`key`), "client.crt": []byte(`crt`),
+						"ca.key": []byte(`key`), "ca.crt": []byte(`crt`),
 					},
-					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
 				},
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
@@ -244,12 +220,7 @@ func Test_mrkForCleanup(t *testing.T) {
 				},
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: stunnelSecret + "-client-foo",
-					},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: stunnelSecret + "-ca-bundle-foo",
+						Name: stunnelSecret + "-certs-foo",
 					},
 				},
 			},

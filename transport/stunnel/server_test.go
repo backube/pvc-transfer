@@ -100,10 +100,10 @@ func TestNewServer(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-server-foo",
+						Name:      "stunnel-creds-certs-foo",
 						Namespace: "bar",
 					},
-					Data: map[string][]byte{"tls.key": []byte(`key`), "tls.crt": []byte(`crt`)},
+					Data: map[string][]byte{"server.key": []byte(`key`), "server.crt": []byte(`crt`)},
 				},
 			},
 		},
@@ -117,10 +117,10 @@ func TestNewServer(t *testing.T) {
 			objects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "stunnel-credentials-server-foo",
+						Name:      "stunnel-creds-certs-foo",
 						Namespace: "bar",
 					},
-					Data: map[string][]byte{"tls.crt": []byte(`crt`)},
+					Data: map[string][]byte{"server.crt": []byte(`crt`)},
 				},
 			},
 		},
@@ -189,18 +189,18 @@ func TestNewServer(t *testing.T) {
 			secret := &corev1.Secret{}
 			err = fakeClient.Get(context.Background(), types.NamespacedName{
 				Namespace: "bar",
-				Name:      stunnelSecret + "-server-foo",
+				Name:      stunnelSecret + "-certs-foo",
 			}, secret)
 			if err != nil {
 				panic(fmt.Errorf("%#v should not be getting error from fake client", err))
 			}
 
-			_, ok = secret.Data["tls.key"]
+			_, ok = secret.Data["server.key"]
 			if !ok {
 				t.Error("unable to find tls.key in stunnel secret")
 			}
 
-			_, ok = secret.Data["tls.crt"]
+			_, ok = secret.Data["server.crt"]
 			if !ok {
 				t.Error("unable to find tls.crt in stunnel secret")
 			}

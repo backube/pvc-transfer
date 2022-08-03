@@ -67,7 +67,6 @@ hosts allow = *.*.*.*, *
     munge symlinks = no
     list = yes
     read only = false
-    secrets file = /etc/rsync-secret/rsyncd.secrets
 {{ end }}
 `
 )
@@ -136,17 +135,6 @@ func (s *server) MarkForCleanup(ctx context.Context, c ctrlclient.Client, key, v
 		},
 	}
 	err = utils.UpdateWithLabel(ctx, c, cm, key, value)
-	if err != nil {
-		return err
-	}
-	// update secret
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", rsyncSecretPrefix, s.nameSuffix),
-			Namespace: s.namespace,
-		},
-	}
-	err = utils.UpdateWithLabel(ctx, c, secret, key, value)
 	if err != nil {
 		return err
 	}
