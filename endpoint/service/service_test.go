@@ -89,7 +89,7 @@ func TestNew(t *testing.T) {
 		labels          map[string]string
 		ownerReferences []metav1.OwnerReference
 		want            endpoint.Endpoint
-		wantErr         bool
+		wantHealthy     bool
 		admitted        bool
 		alreadyCreated  bool
 		ingressPort     int32
@@ -102,7 +102,7 @@ func TestNew(t *testing.T) {
 			namespacedName:  types.NamespacedName{Namespace: "bar", Name: "foo"},
 			labels:          map[string]string{"test": "me"},
 			ownerReferences: testOwnerReferences(),
-			wantErr:         true,
+			wantHealthy:     false,
 			admitted:        false,
 			alreadyCreated:  false,
 			ingressPort:     8080,
@@ -114,7 +114,7 @@ func TestNew(t *testing.T) {
 			namespacedName:  types.NamespacedName{Namespace: "bar", Name: "foo"},
 			labels:          map[string]string{"test": "me"},
 			ownerReferences: testOwnerReferences(),
-			wantErr:         true,
+			wantHealthy:     false,
 			admitted:        false,
 			alreadyCreated:  true,
 			ingressPort:     8080,
@@ -126,7 +126,7 @@ func TestNew(t *testing.T) {
 			namespacedName:  types.NamespacedName{Namespace: "bar", Name: "foo"},
 			labels:          map[string]string{"test": "me"},
 			ownerReferences: testOwnerReferences(),
-			wantErr:         false,
+			wantHealthy:     true,
 			admitted:        true,
 			alreadyCreated:  true,
 			ingressPort:     8080,
@@ -144,14 +144,16 @@ func TestNew(t *testing.T) {
 			}
 			ctx := context.WithValue(context.Background(), "test", tt.name)
 			fakeLogger := logrtesting.TestLogger{t}
-			_, err := New(ctx, fakeClient, fakeLogger, tt.namespacedName, tt.backendPort, tt.ingressPort, tt.svcType, tt.labels, tt.annotations, tt.ownerReferences)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("New() error = %v, wantErr %v", err, tt.wantErr)
+			e, _ := New(ctx, fakeClient, fakeLogger, tt.namespacedName, tt.backendPort, tt.ingressPort, tt.svcType, tt.labels, tt.annotations, tt.ownerReferences)
+
+			healthy, _ := e.IsHealthy(context.TODO(), fakeClient)
+			if healthy != tt.wantHealthy {
+				t.Errorf("IsHealthy() healthy = %v, wantHealthy %v", healthy, tt.wantHealthy)
 				return
 			}
 
 			svc := &corev1.Service{}
-			err = fakeClient.Get(context.Background(), tt.namespacedName, svc)
+			err := fakeClient.Get(context.Background(), tt.namespacedName, svc)
 			if err != nil {
 				t.Errorf("got an unexpected error from test client: %#v", err)
 			}
@@ -161,7 +163,7 @@ func TestNew(t *testing.T) {
 				svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
 				t.Errorf("did not reconcile properly, got %#v", svc)
 			}
-			if !tt.wantErr && svc.Status.LoadBalancer.Ingress[0].Hostname != "foo.bar" {
+			if tt.wantHealthy && svc.Status.LoadBalancer.Ingress[0].Hostname != "foo.bar" {
 				t.Errorf("expected healthy loadbalancer, hostname is not populated, got %#v", svc)
 			}
 		})
