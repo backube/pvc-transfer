@@ -3,11 +3,9 @@ package stunnel
 import (
 	"bytes"
 	"context"
-	"strconv"
 	"text/template"
 
 	"github.com/backube/pvc-transfer/transport"
-	"github.com/backube/pvc-transfer/transport/tls/certs"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,26 +23,31 @@ sslVersion = TLSv1.3
 client = yes
 syslog = no
 output = /dev/stdout
+{{ if .UseTLS }}
+key = /etc/stunnel/certs/client.key
+cert = /etc/stunnel/certs/client.crt
+CAfile = /etc/stunnel/certs/ca.crt
+verify = 2
+{{ else }}
+ciphers = PSK
+PSKsecrets = /etc/stunnel/certs/key
+{{ end }}
 
 [transfer]
 debug = 7
-accept = {{ .listenPort }}
-cert = /etc/stunnel/certs/client.crt
-key = /etc/stunnel/certs/client.key
-CAfile = /etc/stunnel/certs/ca.crt
-verify = 2
-{{- if not (eq .proxyHost "") }}
+accept = {{ .ListenPort }}
+{{- if not (eq .ProxyHost "") }}
 protocol = connect
-connect = {{ .proxyHost }}
-protocolHost = {{ .hostname }}:{{ .listenPort }}
-{{- if not (eq .proxyUsername "") }}
-protocolUsername = {{ .proxyUsername }}
+connect = {{ .ProxyHost }}
+protocolHost = {{ .Hostname }}:{{ .ListenPort }}
+{{- if not (eq .ProxyUsername "") }}
+protocolUsername = {{ .ProxyUsername }}
 {{- end }}
-{{- if not (eq .proxyPassword "") }}
-protocolPassword = {{ .proxyPassword }}
+{{- if not (eq .ProxyPassword "") }}
+protocolPassword = {{ .ProxyPassword }}
 {{- end }}
 {{- else }}
-connect = {{ .hostname }}:{{ .connectPort }}
+connect = {{ .Hostname }}:{{ .ConnectPort }}
 {{- end }}
 `
 )
@@ -93,10 +96,7 @@ func (sc *client) Type() transport.Type {
 }
 
 func (sc *client) Credentials() types.NamespacedName {
-	return types.NamespacedName{
-		Namespace: sc.namespacedName.Namespace,
-		Name:      stunnelSecret,
-	}
+	return getCredentialsSecretRef(sc, sc.options.Credentials)
 }
 
 func (sc *client) Hostname() string {
@@ -147,16 +147,30 @@ func (sc *client) reconcileConfig(ctx context.Context, c ctrlclient.Client) erro
 		return err
 	}
 
-	connections := map[string]string{
-		"listenPort":    strconv.Itoa(int(sc.ListenPort())),
-		"hostname":      sc.serverHostname,
-		"connectPort":   strconv.Itoa(int(sc.ConnectPort())),
-		"proxyHost":     sc.Options().ProxyURL,
-		"proxyUsername": sc.Options().ProxyUsername,
-		"proxyPassword": sc.Options().ProxyPassword,
+	type confFields struct {
+		ListenPort    int32
+		ConnectPort   int32
+		Hostname      string
+		ProxyHost     string
+		ProxyUsername string
+		ProxyPassword string
+		UseTLS        bool
+	}
+
+	fields := confFields{
+		ListenPort:    sc.ListenPort(),
+		Hostname:      sc.serverHostname,
+		ConnectPort:   sc.ConnectPort(),
+		ProxyHost:     sc.Options().ProxyURL,
+		ProxyUsername: sc.Options().ProxyUsername,
+		ProxyPassword: sc.Options().ProxyPassword,
+		UseTLS:        true,
+	}
+	if sc.options.Credentials != nil && sc.options.Credentials.Type == CredentialsTypePSK {
+		fields.UseTLS = false
 	}
 	var stunnelConf bytes.Buffer
-	err = stunnelConfTemplate.Execute(&stunnelConf, connections)
+	err = stunnelConfTemplate.Execute(&stunnelConf, fields)
 	if err != nil {
 		sc.logger.Error(err, "unable to execute stunnel client config template")
 		return err
@@ -181,22 +195,7 @@ func (sc *client) reconcileConfig(ctx context.Context, c ctrlclient.Client) erro
 }
 
 func (sc *client) reconcileSecret(ctx context.Context, c ctrlclient.Client) error {
-	valid, err := isSecretValid(ctx, c, sc.logger, sc.namespacedName, "certs")
-	if err != nil {
-		sc.logger.Error(err, "error getting existing ssl certs from secret")
-		return err
-	}
-	if valid {
-		return nil
-	}
-
-	crtBundle, err := certs.New()
-	if err != nil {
-		sc.logger.Error(err, "error generating ssl certificate bundle for stunnel client")
-		return err
-	}
-
-	return reconcileCertificateSecrets(ctx, c, sc.namespacedName, sc.options, crtBundle)
+	return reconcileCredentialSecret(ctx, c, sc.logger, sc, sc.options)
 }
 
 func (sc *client) clientContainers(listenPort int32) []corev1.Container {
@@ -243,26 +242,8 @@ func (sc *client) clientVolumes() []corev1.Volume {
 			},
 		},
 		{
-			Name: getResourceName(sc.namespacedName, "certs", stunnelSecret),
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: getResourceName(sc.namespacedName, "certs", stunnelSecret),
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "client.crt",
-							Path: "client.crt",
-						},
-						{
-							Key:  "client.key",
-							Path: "client.key",
-						},
-						{
-							Key:  "ca.crt",
-							Path: "ca.crt",
-						},
-					},
-				},
-			},
+			Name:         getResourceName(sc.namespacedName, "certs", stunnelSecret),
+			VolumeSource: getCredentialsVolumeSource(sc, sc.options.Credentials, "client"),
 		},
 	}
 }

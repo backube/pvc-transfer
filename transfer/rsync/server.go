@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"strconv"
 	"text/template"
 
 	"github.com/backube/pvc-transfer/endpoint"
@@ -58,15 +57,17 @@ hosts allow = ::1, 127.0.0.1, localhost
 {{- else }}
 hosts allow = *.*.*.*, *
 {{- end }}
+use chroot = no
+munge symlinks = no
+read only = false
 
+[termination]
+	comment = special file for termination
+	path = /mnt/termination
 {{ range $i, $pvc := .PVCList }}
 [{{ $pvc.LabelSafeName }}]
     comment = archive for {{ $pvc.Claim.Namespace }}/{{ $pvc.Claim.Name }}
     path = /mnt/{{ $pvc.Claim.Namespace }}/{{ $pvc.LabelSafeName }}
-    use chroot = no
-    munge symlinks = no
-    list = yes
-    read only = false
 {{ end }}
 `
 )
@@ -348,6 +349,7 @@ func (s *server) reconcilePod(ctx context.Context, c ctrlclient.Client, namespac
 
 	volumeMounts = append(volumeMounts, configVolumeMounts...)
 	volumeMounts = append(volumeMounts, pvcVolumeMounts...)
+	volumeMounts = append(volumeMounts, getTerminationVolumeMounts()...)
 	containers := s.getContainers(volumeMounts)
 
 	containers = append(containers, s.Transport().Containers()...)
@@ -359,6 +361,7 @@ func (s *server) reconcilePod(ctx context.Context, c ctrlclient.Client, namespac
 
 	volumes := append(pvcVolumes, configVolumes...)
 	volumes = append(volumes, s.Transport().Volumes()...)
+	volumes = append(volumes, getTerminationVolumes()...)
 
 	podSpec := corev1.PodSpec{
 		Containers:         containers,
@@ -381,10 +384,7 @@ func (s *server) reconcilePod(ctx context.Context, c ctrlclient.Client, namespac
 		server.Labels = s.labels
 		server.OwnerReferences = s.ownerRefs
 		if server.CreationTimestamp.IsZero() {
-			server.Spec.Containers = podSpec.Containers
-			server.Spec.ServiceAccountName = podSpec.ServiceAccountName
-			server.Spec.RestartPolicy = corev1.RestartPolicyNever
-			server.Spec.Volumes = podSpec.Volumes
+			server.Spec = podSpec
 		}
 		return nil
 	})
@@ -426,13 +426,12 @@ func (s *server) getPVCVolumeMounts(namespace string) []corev1.VolumeMount {
 }
 
 func (s *server) getContainers(volumeMounts []corev1.VolumeMount) []corev1.Container {
-	rsyncCommandTemplate := `touch ` + rsyncdLogDirPath + `rsync.log; /usr/bin/rsync --daemon --no-detach --port=` + strconv.Itoa(int(s.ListenPort())) + ` -vvv`
-
+	rsyncCommandTemplate := fmt.Sprintf(
+		"/usr/bin/rsync --daemon --port=%d --no-detach -vvv", int(s.ListenPort()))
 	if s.options.TerminateOnCompletion != nil && *s.options.TerminateOnCompletion {
-		terminationScript := ` | tee ` + rsyncdLogDirPath + `rsync.log &
+		terminationScript := ` &
 while true; do
-	grep "_exit_cleanup" ` + rsyncdLogDirPath + `rsync.log >> /dev/null
-	if [[ $? -eq 0 ]]
+	if [[ -f /mnt/termination/done ]]
 	then
 		exit 0; 
 	fi

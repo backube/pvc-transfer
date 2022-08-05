@@ -128,7 +128,7 @@ func VerifyCertificate(caCrt *bytes.Buffer, crt *bytes.Buffer) (bool, error) {
 	roots := x509.NewCertPool()
 	ok := roots.AppendCertsFromPEM(caCrt.Bytes())
 	if !ok {
-		panic("failed to parse root certificate")
+		return false, fmt.Errorf("failed to parse root certificate")
 	}
 
 	block, _ := pem.Decode(crt.Bytes())

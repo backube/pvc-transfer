@@ -35,7 +35,7 @@ func Test_getExistingCert(t *testing.T) {
 			objects:        []ctrlclient.Object{},
 		},
 		{
-			name:           "test with invalid secret, key missing",
+			name:           "test with invalid TLS secret, key missing",
 			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
 			labels:         map[string]string{"test": "me"},
 			wantErr:        false,
@@ -52,7 +52,7 @@ func Test_getExistingCert(t *testing.T) {
 			},
 		},
 		{
-			name:           "test with invalid secret, crt missing",
+			name:           "test with invalid TLS secret, crt missing",
 			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
 			labels:         map[string]string{"test": "me"},
 			wantErr:        false,
@@ -69,7 +69,7 @@ func Test_getExistingCert(t *testing.T) {
 			},
 		},
 		{
-			name:           "test with secret missing ca.crt",
+			name:           "test with TLS secret missing ca.crt",
 			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
 			labels:         map[string]string{"test": "me"},
 			wantErr:        true,
@@ -86,7 +86,7 @@ func Test_getExistingCert(t *testing.T) {
 			},
 		},
 		{
-			name:           "test with valid secret",
+			name:           "test with valid TLS secret",
 			namespacedName: types.NamespacedName{Namespace: "bar", Name: "foo"},
 			labels:         map[string]string{"test": "me"},
 			wantErr:        true,
@@ -116,8 +116,12 @@ func Test_getExistingCert(t *testing.T) {
 					Owners: testOwnerReferences(),
 				},
 			}
+			secretRef := types.NamespacedName{
+				Namespace: s.namespacedName.Namespace,
+				Name:      fmt.Sprintf("%s-%s-%s", stunnelSecret, "foo", s.namespacedName.Name),
+			}
 			ctx := context.WithValue(context.Background(), "test", tt.name)
-			found, err := isSecretValid(ctx, fakeClientWithObjects(tt.objects...), s.logger, s.namespacedName, "foo")
+			found, err := isTLSSecretValid(ctx, fakeClientWithObjects(tt.objects...), s.logger, secretRef)
 			if err != nil {
 				t.Error("found unexpected error", err)
 			}

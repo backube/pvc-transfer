@@ -227,21 +227,24 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 	for _, pvc := range tc.pvcList.InNamespace(ns).PVCs() {
 		// create Rsync command for PVC
 		rsyncContainerCommand := tc.getCommand(rsyncOptions, pvc)
+
+		volumeMounts := []corev1.VolumeMount{
+			{
+				Name:      "mnt",
+				MountPath: fmt.Sprintf("/mnt/%s/%s", pvc.Claim().Namespace, pvc.LabelSafeName()),
+			},
+			{
+				Name:      "rsync-communication",
+				MountPath: rsyncCommunicationMountPath,
+			},
+		}
+		volumeMounts = append(volumeMounts, getTerminationVolumeMounts()...)
 		// create rsync container
 		containers := []corev1.Container{
 			{
-				Name:    RsyncContainer,
-				Command: rsyncContainerCommand,
-				VolumeMounts: []corev1.VolumeMount{
-					{
-						Name:      "mnt",
-						MountPath: fmt.Sprintf("/mnt/%s/%s", pvc.Claim().Namespace, pvc.LabelSafeName()),
-					},
-					{
-						Name:      "rsync-communication",
-						MountPath: rsyncCommunicationMountPath,
-					},
-				},
+				Name:         RsyncContainer,
+				Command:      rsyncContainerCommand,
+				VolumeMounts: volumeMounts,
 			},
 		}
 		// attach transport containers
@@ -269,6 +272,8 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 			},
 		}
 		volumes = append(volumes, tc.Transport().Volumes()...)
+		volumes = append(volumes, getTerminationVolumes()...)
+
 		podSpec := corev1.PodSpec{
 			Containers:         containers,
 			Volumes:            volumes,
@@ -291,10 +296,7 @@ func (tc *client) reconcilePod(ctx context.Context, c ctrlclient.Client, ns stri
 			pod.Annotations = map[string]string{"pvc": pvc.Claim().Name}
 			pod.OwnerReferences = tc.ownerRefs
 			if pod.CreationTimestamp.IsZero() {
-				pod.Spec.Containers = podSpec.Containers
-				pod.Spec.Volumes = podSpec.Volumes
-				pod.Spec.RestartPolicy = podSpec.RestartPolicy
-				pod.Spec.ServiceAccountName = podSpec.ServiceAccountName
+				pod.Spec = podSpec
 			}
 			return nil
 		})
@@ -319,12 +321,18 @@ func (tc *client) getCommand(rsyncOptions []string, pvc transfer.PVC) []string {
 			tc.username,
 			tc.Transport().Hostname(),
 			pvc.LabelSafeName(), tc.Transport().ListenPort()))
+	rsyncTerminationCommand := fmt.Sprintf(
+		"/usr/bin/rsync /mnt/termination/done rsync://%s@%s/termination/ --port %d",
+		tc.username,
+		tc.Transport().Hostname(),
+		tc.Transport().ListenPort())
 	rsyncCommandBashScript := fmt.Sprintf(`trap "touch %s/rsync-client-container-done" EXIT SIGINT SIGTERM;
 timeout=120;
 SECONDS=0;
 START_TIME=$SECONDS
+touch /mnt/termination/done
 while [ $SECONDS -lt $timeout ]
-do 
+do
 	nc -z localhost %d
 	rc=$?
 	if [ $rc -eq 0 ]
@@ -340,7 +348,7 @@ do
 			%s
 			rc=$?
 			if [[ ${rc} -ne 0 ]]; then
-				echo "Syncronization failed. Retrying in ${DELAY} seconds. Retry ${RETRY}/${MAX_RETRIES}."
+				echo "Synchronization failed. Retrying in ${DELAY} seconds. Retry ${RETRY}/${MAX_RETRIES}."
 				if [[ ${RETRY} -lt ${MAX_RETRIES} ]]; then
 					sleep ${DELAY}
 					DELAY=$((DELAY * FACTOR ))
@@ -351,10 +359,19 @@ do
 	fi
 done
 echo "Rsync completed in $(( SECONDS - START_TIME ))s"
-exit $rc`,
+sync
+if [[ $rc -eq 0 ]]; then
+    echo "Synchronization completed successfully. Notifying destination..."
+    %s
+else
+    echo "Synchronization failed. rsync returned: $rc"
+    exit $rc
+fi
+`,
 		rsyncCommunicationMountPath,
 		tc.Transport().ListenPort(),
-		strings.Join(rsyncCommand, " "))
+		strings.Join(rsyncCommand, " "),
+		rsyncTerminationCommand)
 	rsyncContainerCommand := []string{
 		"/bin/bash",
 		"-c",

@@ -43,3 +43,23 @@ func applyPodOptions(podSpec *corev1.PodSpec, options transfer.PodOptions) {
 		c.Resources = options.Resources
 	}
 }
+
+func getTerminationVolumeMounts() []corev1.VolumeMount {
+	return []corev1.VolumeMount{
+		{
+			Name:      "termination",
+			MountPath: "/mnt/termination",
+		},
+	}
+}
+
+func getTerminationVolumes() []corev1.Volume {
+	return []corev1.Volume{
+		{
+			Name: "termination",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+	}
+}

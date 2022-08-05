@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/backube/pvc-transfer/transport"
+	"github.com/backube/pvc-transfer/transport/tls/certs"
 	logrtesting "github.com/go-logr/logr/testing"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -153,6 +154,183 @@ func TestNewClient(t *testing.T) {
 			if len(stunnelClient.Containers()) == 0 {
 				t.Error("stunnel client containers not set properly")
 			}
+		})
+	}
+}
+
+func Test_client_reconcileSecret(t *testing.T) {
+	testCert, _ := certs.New()
+	tests := []struct {
+		name        string
+		options     *transport.Options
+		secretRef   types.NamespacedName
+		withObjects []ctrlclient.Object
+		wantSecret  *corev1.Secret
+		wantErr     bool
+	}{
+		{
+			name: "no credentials type provided, must create TLS secret",
+			options: &transport.Options{
+				Credentials: nil,
+			},
+			secretRef: types.NamespacedName{
+				Namespace: "foo",
+				Name:      "bar",
+			},
+			wantErr:     false,
+			withObjects: []ctrlclient.Object{},
+			wantSecret: &corev1.Secret{
+				Data: map[string][]byte{
+					"ca.crt":     {},
+					"ca.key":     {},
+					"client.key": {},
+					"client.crt": {},
+					"server.crt": {},
+					"server.key": {},
+				},
+			},
+		},
+		{
+			name: "PSK secret type specified but no secret ref set, must return error as PSK cannot be created",
+			options: &transport.Options{
+				Credentials: &transport.Credentials{
+					Type: CredentialsTypePSK,
+				},
+			},
+			secretRef: types.NamespacedName{
+				Namespace: "foo",
+				Name:      "bar",
+			},
+			wantErr:     true,
+			withObjects: []ctrlclient.Object{},
+			wantSecret:  nil,
+		},
+		{
+			name: "existing PSK credentials provided with invalid secret keys, must return error",
+			options: &transport.Options{
+				Credentials: &transport.Credentials{
+					Type: CredentialsTypePSK,
+					SecretRef: types.NamespacedName{
+						Namespace: "foo",
+						Name:      "bar",
+					},
+				},
+			},
+			secretRef: types.NamespacedName{
+				Namespace: "foo",
+				Name:      "bar",
+			},
+			wantErr: true,
+			withObjects: []ctrlclient.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "foo",
+						Name:      "bar",
+					},
+					Data: map[string][]byte{
+						"invalid_key": []byte("val"),
+					},
+				},
+			},
+			wantSecret: nil,
+		},
+		{
+			name: "existing PSK credentials provided with valid secret keys, must not return error",
+			options: &transport.Options{
+				Credentials: &transport.Credentials{
+					Type: CredentialsTypePSK,
+					SecretRef: types.NamespacedName{
+						Namespace: "foo",
+						Name:      "bar",
+					},
+				},
+			},
+			secretRef: types.NamespacedName{
+				Namespace: "foo",
+				Name:      "bar",
+			},
+			wantErr: false,
+			withObjects: []ctrlclient.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "foo",
+						Name:      "bar",
+					},
+					Data: map[string][]byte{
+						"key": []byte("val"),
+					},
+				},
+			},
+			wantSecret: nil,
+		},
+		{
+			name: "existing TLS credentials provided with valid secret keys, must not return error",
+			options: &transport.Options{
+				Credentials: &transport.Credentials{
+					Type: CredentialsTypeTLS,
+					SecretRef: types.NamespacedName{
+						Namespace: "foo",
+						Name:      "bar",
+					},
+				},
+			},
+			secretRef: types.NamespacedName{
+				Namespace: "foo",
+				Name:      "bar",
+			},
+			wantErr: false,
+			withObjects: []ctrlclient.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "foo",
+						Name:      "bar",
+					},
+					Data: map[string][]byte{
+						"ca.crt":     testCert.CACrt.Bytes(),
+						"ca.key":     testCert.CAKey.Bytes(),
+						"server.crt": testCert.ServerCrt.Bytes(),
+						"server.key": testCert.ServerKey.Bytes(),
+						"client.crt": testCert.ClientCrt.Bytes(),
+						"client.key": testCert.ClientKey.Bytes(),
+					},
+				},
+			},
+			wantSecret: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := &client{
+				logger:         logrtesting.TestLogger{T: t},
+				connectPort:    6443,
+				listenPort:     6443,
+				options:        tt.options,
+				namespacedName: tt.secretRef,
+			}
+			c := fakeClientWithObjects(tt.withObjects...)
+			if err := sc.reconcileSecret(context.TODO(), c); (err != nil) != tt.wantErr {
+				t.Errorf("client.reconcileSecret() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			// secret won't be created when there was an error
+			if tt.wantSecret == nil {
+				return
+			}
+
+			got := &corev1.Secret{}
+			err := c.Get(context.TODO(), types.NamespacedName{
+				Namespace: tt.secretRef.Namespace,
+				Name:      fmt.Sprintf("%s-%s-%s", stunnelSecret, "certs", tt.secretRef.Name),
+			}, got)
+			if err != nil {
+				panic(fmt.Errorf("shouldn't be getting error from the client, err %v", err))
+			}
+
+			for wantK := range tt.wantSecret.Data {
+				if _, ok := got.Data[wantK]; !ok {
+					t.Errorf("client.reconcileSecret() key = %v not found in secret", wantK)
+				}
+			}
+
 		})
 	}
 }
