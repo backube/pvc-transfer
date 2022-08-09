@@ -29,14 +29,14 @@ socket = r:TCP_NODELAY=1
 debug = 7
 sslVersion = TLSv1.3
 output=/dev/stdout
-{{ if .UseTLS }}
+{{ if .UsePSK }}
+ciphers = PSK
+PSKsecrets = /etc/stunnel/certs/key
+{{ else }}
 key = /etc/stunnel/certs/server.key
 cert = /etc/stunnel/certs/server.crt
 CAfile = /etc/stunnel/certs/ca.crt
 verify = 2
-{{ else }}
-ciphers = PSK
-PSKsecrets = /etc/stunnel/certs/key
 {{ end }}
 
 [transfer]
@@ -154,17 +154,17 @@ func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error
 	type confFields struct {
 		AcceptPort  int32
 		ConnectPort int32
-		UseTLS      bool
+		UsePSK      bool
 	}
 	fields := confFields{
 		// acceptPort on which Stunnel service listens on, must connect with endpoint
 		AcceptPort: s.ListenPort(),
 		// connectPort in the container on which Transfer is listening on
 		ConnectPort: s.ConnectPort(),
-		UseTLS:      true,
+		UsePSK:      false,
 	}
 	if s.options.Credentials != nil && s.options.Credentials.Type == CredentialsTypePSK {
-		fields.UseTLS = false
+		fields.UsePSK = true
 	}
 	var stunnelConf bytes.Buffer
 	err = stunnelConfTemplate.Execute(&stunnelConf, fields)

@@ -3,7 +3,11 @@ package stunnel
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math/big"
+
+	b64 "encoding/base64"
 
 	"github.com/backube/pvc-transfer/internal/utils"
 	"github.com/backube/pvc-transfer/transport"
@@ -25,7 +29,7 @@ const (
 
 const (
 	CredentialsTypePSK transport.CredentialsType = "PSK"
-	CredentialsTypeTLS transport.CredentialsType = "TLS"
+	CredentialsTypeSSL transport.CredentialsType = "SSL"
 )
 
 const (
@@ -120,23 +124,17 @@ func isPSKSecretValid(ctx context.Context, c ctrlclient.Client, logger logr.Logg
 func reconcileCredentialSecret(ctx context.Context,
 	c ctrlclient.Client,
 	logger logr.Logger,
-	s transport.Transport,
+	t transport.Transport,
 	o *transport.Options) error {
 	var err error
 	secretValid := false
-	credType := CredentialsTypeTLS
-	secretRef := types.NamespacedName{
-		Namespace: s.NamespacedName().Namespace,
-		Name:      getResourceName(s.NamespacedName(), "certs", stunnelSecret),
-	}
+	credType := CredentialsTypeSSL
 	if o.Credentials != nil {
 		if o.Credentials.Type != "" {
 			credType = o.Credentials.Type
 		}
-		if o.Credentials.SecretRef.Name != "" {
-			secretRef = o.Credentials.SecretRef
-		}
 	}
+	secretRef := getCredentialsSecretRef(t, o.Credentials)
 
 	switch credType {
 	case CredentialsTypePSK:
@@ -145,7 +143,7 @@ func reconcileCredentialSecret(ctx context.Context,
 			logger.Error(err, "error getting existing PSK credentials from secret")
 			return err
 		}
-	case CredentialsTypeTLS:
+	case CredentialsTypeSSL:
 		secretValid, err = isTLSSecretValid(ctx, c, logger, secretRef)
 		if err != nil {
 			logger.Error(err, "error getting existing ssl certs from secret")
@@ -163,20 +161,20 @@ func reconcileCredentialSecret(ctx context.Context,
 	logger.Info("generating new certificate bundle")
 
 	switch credType {
-	case CredentialsTypeTLS:
+	case CredentialsTypeSSL:
 		crtBundle, err := certs.New()
 		if err != nil {
 			logger.Error(err, "error generating ssl certs for stunnel server")
 			return err
 		}
-		return reconcileTLSSecret(ctx, c, secretRef, o, crtBundle)
+		return reconcileSSLSecret(ctx, c, secretRef, o, crtBundle)
 	default:
-		return fmt.Errorf("cannot create credentials of type %s", credType)
+		return reconcilePSKSecret(ctx, c, secretRef, o)
 	}
 }
 
-// reconcileTLSSecret reconciles secret of TLS type
-func reconcileTLSSecret(ctx context.Context,
+// reconcileSSLSecret reconciles secret of TLS type
+func reconcileSSLSecret(ctx context.Context,
 	c ctrlclient.Client,
 	secretRef types.NamespacedName,
 	options *transport.Options,
@@ -208,6 +206,39 @@ func reconcileTLSSecret(ctx context.Context,
 	return err
 }
 
+// reconcilePSKSecret reconciles secret of TLS type
+func reconcilePSKSecret(ctx context.Context,
+	c ctrlclient.Client,
+	secretRef types.NamespacedName,
+	options *transport.Options) error {
+	pskSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: secretRef.Namespace,
+			Name:      secretRef.Name,
+		},
+	}
+	pass, err := GeneratePassword()
+	if err != nil {
+		return err
+	}
+	_, err = controllerutil.CreateOrUpdate(ctx, c, pskSecret, func() error {
+		pskSecret.Labels = options.Labels
+		pskSecret.OwnerReferences = options.Owners
+
+		// stunnel requires key to be base64 encoded
+		pskSecret.Data = map[string][]byte{
+			"key": []byte(fmt.Sprintf(
+				"root:%s\n", b64.StdEncoding.EncodeToString([]byte(pass)))),
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
 func getCredentialsSecretRef(t transport.Transport, c *transport.Credentials) types.NamespacedName {
 	secretRef := types.NamespacedName{
 		Name:      getResourceName(t.NamespacedName(), "certs", stunnelSecret),
@@ -222,7 +253,7 @@ func getCredentialsSecretRef(t transport.Transport, c *transport.Credentials) ty
 }
 
 func getCredentialsVolumeSource(t transport.Transport, c *transport.Credentials, key string) corev1.VolumeSource {
-	tlsItems := []corev1.KeyToPath{
+	sslItems := []corev1.KeyToPath{
 		{
 			Key:  fmt.Sprintf("%s.crt", key),
 			Path: fmt.Sprintf("%s.crt", key),
@@ -245,14 +276,14 @@ func getCredentialsVolumeSource(t transport.Transport, c *transport.Credentials,
 	volumeSource := corev1.VolumeSource{
 		Secret: &corev1.SecretVolumeSource{
 			SecretName: getCredentialsSecretRef(t, c).Name,
-			Items:      tlsItems,
+			Items:      sslItems,
 		},
 	}
 	// when no existing credentials are provided, default to TLS
 	if c != nil {
 		switch c.Type {
-		case CredentialsTypeTLS:
-			volumeSource.Secret.Items = tlsItems
+		case CredentialsTypeSSL:
+			volumeSource.Secret.Items = sslItems
 			return volumeSource
 		case CredentialsTypePSK:
 			volumeSource.Secret.Items = pskItems
@@ -289,4 +320,19 @@ func markForCleanup(ctx context.Context, c ctrlclient.Client, objKey types.Names
 	}
 
 	return nil
+}
+
+// GeneratePassword can be used to generate random character string of 32 bytes
+func GeneratePassword() (string, error) {
+	var letters = []byte("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	password := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			return "", err
+		}
+		password = append(password, letters[num.Int64()])
+	}
+
+	return string(password), nil
 }

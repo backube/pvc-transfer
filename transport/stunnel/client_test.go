@@ -191,7 +191,7 @@ func Test_client_reconcileSecret(t *testing.T) {
 			},
 		},
 		{
-			name: "PSK secret type specified but no secret ref set, must return error as PSK cannot be created",
+			name: "PSK secret type specified but no secret ref set, must create new PSK secret",
 			options: &transport.Options{
 				Credentials: &transport.Credentials{
 					Type: CredentialsTypePSK,
@@ -201,12 +201,16 @@ func Test_client_reconcileSecret(t *testing.T) {
 				Namespace: "foo",
 				Name:      "bar",
 			},
-			wantErr:     true,
+			wantErr:     false,
 			withObjects: []ctrlclient.Object{},
-			wantSecret:  nil,
+			wantSecret: &corev1.Secret{
+				Data: map[string][]byte{
+					"key": {},
+				},
+			},
 		},
 		{
-			name: "existing PSK credentials provided with invalid secret keys, must return error",
+			name: "existing PSK credentials provided with invalid secret keys, must update the secret with correct values",
 			options: &transport.Options{
 				Credentials: &transport.Credentials{
 					Type: CredentialsTypePSK,
@@ -220,7 +224,7 @@ func Test_client_reconcileSecret(t *testing.T) {
 				Namespace: "foo",
 				Name:      "bar",
 			},
-			wantErr: true,
+			wantErr: false,
 			withObjects: []ctrlclient.Object{
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
@@ -232,7 +236,11 @@ func Test_client_reconcileSecret(t *testing.T) {
 					},
 				},
 			},
-			wantSecret: nil,
+			wantSecret: &corev1.Secret{
+				Data: map[string][]byte{
+					"key": {},
+				},
+			},
 		},
 		{
 			name: "existing PSK credentials provided with valid secret keys, must not return error",
@@ -267,7 +275,7 @@ func Test_client_reconcileSecret(t *testing.T) {
 			name: "existing TLS credentials provided with valid secret keys, must not return error",
 			options: &transport.Options{
 				Credentials: &transport.Credentials{
-					Type: CredentialsTypeTLS,
+					Type: CredentialsTypeSSL,
 					SecretRef: types.NamespacedName{
 						Namespace: "foo",
 						Name:      "bar",
@@ -315,12 +323,15 @@ func Test_client_reconcileSecret(t *testing.T) {
 			if tt.wantSecret == nil {
 				return
 			}
-
-			got := &corev1.Secret{}
-			err := c.Get(context.TODO(), types.NamespacedName{
+			secretRef := types.NamespacedName{
 				Namespace: tt.secretRef.Namespace,
 				Name:      fmt.Sprintf("%s-%s-%s", stunnelSecret, "certs", tt.secretRef.Name),
-			}, got)
+			}
+			if tt.options.Credentials != nil && tt.options.Credentials.SecretRef.Name != "" {
+				secretRef = tt.options.SecretRef
+			}
+			got := &corev1.Secret{}
+			err := c.Get(context.TODO(), secretRef, got)
 			if err != nil {
 				panic(fmt.Errorf("shouldn't be getting error from the client, err %v", err))
 			}

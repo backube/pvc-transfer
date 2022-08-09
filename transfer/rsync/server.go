@@ -433,6 +433,7 @@ func (s *server) getContainers(volumeMounts []corev1.VolumeMount) []corev1.Conta
 while true; do
 	if [[ -f /mnt/termination/done ]]
 	then
+		sync
 		exit 0; 
 	fi
 	sleep 1;
