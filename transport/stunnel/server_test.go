@@ -182,7 +182,7 @@ func TestNewServer(t *testing.T) {
 			if !ok {
 				t.Error("unable to find stunnel config data in configmap")
 			}
-			if !strings.Contains(configData, "foreground = yes") {
+			if !strings.Contains(configData, "foreground = no") {
 				t.Error("configmap data does not contain the right data")
 			}
 

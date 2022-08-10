@@ -3,12 +3,11 @@ package stunnel
 import (
 	"bytes"
 	"context"
-	"strconv"
+	"fmt"
 	"text/template"
 
 	"github.com/backube/pvc-transfer/endpoint"
 	"github.com/backube/pvc-transfer/transport"
-	"github.com/backube/pvc-transfer/transport/tls/certs"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,20 +22,26 @@ const (
 	// this means that the tcp stack does not wait for receiving an ack
 	// before sending the next packet https://en.wikipedia.org/wiki/Nagle%27s_algorithm
 	// At scale setting/unsetting this option might drive different network characteristics
-	stunnelServerConfTemplate = `foreground = yes
+	stunnelServerConfTemplate = `foreground = no
 pid =
 socket = l:TCP_NODELAY=1
 socket = r:TCP_NODELAY=1
 debug = 7
 sslVersion = TLSv1.3
-
-[transfer]
-accept = {{ $.acceptPort }}
-connect = {{ $.connectPort }}
+output=/dev/stdout
+{{ if .UsePSK }}
+ciphers = PSK
+PSKsecrets = /etc/stunnel/certs/key
+{{ else }}
 key = /etc/stunnel/certs/server.key
 cert = /etc/stunnel/certs/server.crt
 CAfile = /etc/stunnel/certs/ca.crt
 verify = 2
+{{ end }}
+
+[transfer]
+accept = {{ $.AcceptPort }}
+connect = {{ $.ConnectPort }}
 TIMEOUTclose = 0
 `
 	stunnelConnectPort = 8080
@@ -128,10 +133,7 @@ func (s *server) Type() transport.Type {
 }
 
 func (s *server) Credentials() types.NamespacedName {
-	return types.NamespacedName{
-		Name:      getResourceName(s.namespacedName, "certs", stunnelSecret),
-		Namespace: s.NamespacedName().Namespace,
-	}
+	return getCredentialsSecretRef(s, s.options.Credentials)
 }
 
 func (s *server) Hostname() string {
@@ -149,14 +151,23 @@ func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error
 		return err
 	}
 
-	ports := map[string]string{
+	type confFields struct {
+		AcceptPort  int32
+		ConnectPort int32
+		UsePSK      bool
+	}
+	fields := confFields{
 		// acceptPort on which Stunnel service listens on, must connect with endpoint
-		"acceptPort": strconv.Itoa(int(s.ListenPort())),
+		AcceptPort: s.ListenPort(),
 		// connectPort in the container on which Transfer is listening on
-		"connectPort": strconv.Itoa(int(s.ConnectPort())),
+		ConnectPort: s.ConnectPort(),
+		UsePSK:      false,
+	}
+	if s.options.Credentials != nil && s.options.Credentials.Type == CredentialsTypePSK {
+		fields.UsePSK = true
 	}
 	var stunnelConf bytes.Buffer
-	err = stunnelConfTemplate.Execute(&stunnelConf, ports)
+	err = stunnelConfTemplate.Execute(&stunnelConf, fields)
 	if err != nil {
 		s.logger.Error(err, "unable to execute stunnel server config template")
 		return err
@@ -182,33 +193,37 @@ func (s *server) reconcileConfig(ctx context.Context, c ctrlclient.Client) error
 }
 
 func (s *server) reconcileSecret(ctx context.Context, c ctrlclient.Client) error {
-	secretValid, err := isSecretValid(ctx, c, s.logger, s.namespacedName, "certs")
-	if err != nil {
-		s.logger.Error(err, "error getting existing ssl certs from secret")
-		return err
-	}
-	if secretValid {
-		s.logger.V(4).Info("found secret with valid certs")
-		return nil
-	}
-
-	s.logger.Info("generating new certificate bundle")
-	crtBundle, err := certs.New()
-	if err != nil {
-		s.logger.Error(err, "error generating ssl certs for stunnel server")
-		return err
-	}
-	return reconcileCertificateSecrets(ctx, c, s.namespacedName, s.options, crtBundle)
+	return reconcileCredentialSecret(ctx, c, s.logger, s, s.options)
 }
 
 func (s *server) serverContainers() []corev1.Container {
+	stunnelScript := `/bin/stunnel /etc/stunnel/stunnel.conf
+	# terminate the transport when transfer isn't available
+	RETRY=0
+	while true; do
+		nc -z localhost %d
+		rc=$?
+		if [ $rc -ne 0 ]; then
+			RETRY=$((RETRY+1))
+		else
+			RETRY=0
+		fi
+		if [ $RETRY -gt 10 ]; then
+			exit 0
+		else
+			sleep 1
+		fi
+	done
+	`
+	stunnelScript = fmt.Sprintf(stunnelScript, s.ConnectPort())
 	return []corev1.Container{
 		{
 			Name:  Container,
 			Image: getImage(s.options),
 			Command: []string{
-				"/bin/stunnel",
-				"/etc/stunnel/stunnel.conf",
+				"/bin/bash",
+				"-c",
+				stunnelScript,
 			},
 			Ports: []corev1.ContainerPort{
 				{
@@ -245,26 +260,8 @@ func (s *server) serverVolumes() []corev1.Volume {
 			},
 		},
 		{
-			Name: getResourceName(s.namespacedName, "certs", stunnelSecret),
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: getResourceName(s.namespacedName, "certs", stunnelSecret),
-					Items: []corev1.KeyToPath{
-						{
-							Key:  "server.crt",
-							Path: "server.crt",
-						},
-						{
-							Key:  "server.key",
-							Path: "server.key",
-						},
-						{
-							Key:  "ca.crt",
-							Path: "ca.crt",
-						},
-					},
-				},
-			},
+			Name:         getResourceName(s.namespacedName, "certs", stunnelSecret),
+			VolumeSource: getCredentialsVolumeSource(s, s.options.Credentials, "server"),
 		},
 	}
 }

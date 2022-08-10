@@ -46,6 +46,8 @@ type Options struct {
 	Owners []metav1.OwnerReference
 	// Image allows for specifying the image used for running the transport containers
 	Image string
+	// Credentials allows specifying pre-existing transport credentials
+	*Credentials
 
 	// ProxyURL is used if the cluster is behind a proxy
 	ProxyURL string
@@ -54,5 +56,15 @@ type Options struct {
 	// ProxyPassword password for connecting to the proxy
 	ProxyPassword string
 }
+
+// Credentials are used by transports to encrypt data
+type Credentials struct {
+	// SecretRef ref to the secret holding credentials data
+	SecretRef types.NamespacedName
+	// Type type of credentials used
+	Type CredentialsType
+}
+
+type CredentialsType string
 
 type Type string
